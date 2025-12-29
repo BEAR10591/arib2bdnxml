@@ -1,0 +1,30 @@
+# ビルドディレクトリ
+build/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Meson
+meson-private/
+meson-info/
+meson-logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# 出力ファイル（テスト用）
+output/
+*.png
+*.xml
+*.sup
+

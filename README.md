@@ -1,0 +1,130 @@
+# arib2bdnxml
+
+.ts/.m2ts ファイル内の ARIB 字幕を、libaribcaption を使用してビットマップにデコードし、Blu-ray 用 PGS 字幕作成に必要な BDN XML + PNG を生成するツールです。
+
+**注意**: 本プロジェクトのコードは100%生成AIによって作成されたものです。
+
+## 機能
+
+- .ts/.m2ts ファイルから ARIB 字幕を抽出
+- libaribcaption（FFmpeg 経由）を使用してビットマップにデコード
+- BDN XML + PNG を生成
+
+## 要件
+
+- C++17 対応コンパイラ
+- Meson ビルドシステム
+- FFmpeg（libavcodec, libavformat, libavutil, libswscale）
+- libaribcaption（FFmpeg に統合されたデコーダー）
+- libpng
+
+## ビルド
+
+### 依存関係のインストール
+
+**重要**: 通常のパッケージマネージャーからインストールされる標準のFFmpegには`libaribcaption`が有効になっていません。以下の方法で`libaribcaption`が有効なFFmpegを入手してください。
+
+#### Windows
+
+**ビルド済みFFmpegを使用**（推奨）
+
+1. [gyan.dev FFmpeg Builds](https://www.gyan.dev/ffmpeg/builds/) または [BtbN FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) からFFmpegをダウンロード
+2. ダウンロードしたFFmpegの`bin`ディレクトリをPATHに追加
+
+その他の依存関係（[MSYS2](https://www.msys2.org/)を使用する場合）：
+
+```bash
+pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-meson \
+    mingw-w64-x86_64-libpng
+```
+
+#### Linux
+
+**ビルド済みFFmpegを使用**（推奨）
+
+1. [BtbN FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) からFFmpegをダウンロード
+2. ダウンロードしたFFmpegの`bin`ディレクトリをPATHに追加
+
+その他の依存関係：
+
+**Ubuntu/Debian:**
+```bash
+sudo apt update
+sudo apt install -y build-essential meson libpng-dev
+```
+
+**Fedora/RHEL:**
+```bash
+sudo dnf install -y gcc-c++ meson libpng-devel
+```
+
+#### macOS
+
+**Homebrew tapを使用**（推奨）
+
+```bash
+brew install bear10591/tap/ffmpeg meson libpng
+```
+
+参考: [bear10591/homebrew-tap](https://github.com/BEAR10591/homebrew-tap)
+
+### ビルド手順
+
+```bash
+meson setup build
+meson compile -C build
+```
+
+ビルドされた実行ファイルは `build/arib2bdnxml`（Linux/macOS）または `build/arib2bdnxml.exe`（Windows）に生成されます。
+
+## 使用方法
+
+```bash
+arib2bdnxml [オプション] <入力ファイル>
+```
+
+### オプション
+
+- `--resolution, -r <解像度>`: 出力解像度（1920x1080, 1440x1080, 1280x720, 720x480）
+  - 指定がない場合は動画解像度に基づいて自動決定されます
+  - 動画解像度が 1920x1080 または 1440x1080 の場合 → 1920x1080
+  - 動画解像度が 1280x720 の場合 → 1280x720
+  - 動画解像度が 720x480 の場合 → 720x480
+  - それ以外の解像度の場合はエラーで中断されます
+- `--libaribcaption-opt <オプション>`: libaribcaption オプション（key=value,key=value 形式）
+  - 除外: `sub_type`, `ass_single_rect`, `canvas_size`
+  - `canvas_size` は `--resolution` オプションで指定してください
+  - デフォルト値: `outline_width=0.0`, `replace_msz_ascii=0`, `replace_msz_japanese=0`, `replace_drcs=0`
+- `--output <ディレクトリ>`: 出力ディレクトリ（省略時は入力ファイルと同じディレクトリに`<動画ファイル名>_bdnxml`を作成）
+- `--debug`: デバッグログを出力
+- `--help, -h`: ヘルプを表示
+- `--version, -v`: バージョン情報を表示
+
+### 例
+
+```bash
+# 基本的な使用
+arib2bdnxml input.ts
+
+# 解像度を指定
+arib2bdnxml --resolution 1920x1080 input.ts
+
+# 出力ディレクトリを指定
+arib2bdnxml --output ./output input.ts
+
+# libaribcaption オプションを指定
+arib2bdnxml --libaribcaption-opt font="Hiragino Maru Gothic ProN, Rounded M+ 1m for ARIB" input.ts
+```
+
+## ライセンス
+
+（LICENSE ファイルを参照）
+
+## 参考
+
+- [ass2bdnxml](https://github.com/cubicibo/ass2bdnxml)
+- [libaribcaption](https://github.com/xqq/libaribcaption)
+- [FFmpeg](https://ffmpeg.org/)
+- [gyan.dev FFmpeg Builds](https://www.gyan.dev/ffmpeg/builds/) (Windows)
+- [BtbN FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) (Windows/Linux)
+- [bear10591/homebrew-tap](https://github.com/BEAR10591/homebrew-tap) (macOS)
