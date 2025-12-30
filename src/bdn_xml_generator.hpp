@@ -19,6 +19,7 @@ struct BDNInfo {
     int video_width = 1920;
     int video_height = 1080;
     double fps = 29.97;
+    std::string video_format = "1080p";  // VideoFormat (1080p, 1080i, 720p, 480p, 480i)
 };
 
 class BDNXmlGenerator {
@@ -36,6 +37,9 @@ public:
     
     // start_time を考慮してタイムコードを計算
     static double adjust_timestamp(double timestamp, double start_time);
+    
+    // VideoFormatを判定（canvas_heightとis_interlacedから）
+    static std::string determine_video_format(int canvas_height, bool is_interlaced);
 
 private:
     BDNInfo info_;

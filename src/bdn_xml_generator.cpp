@@ -28,7 +28,7 @@ bool BDNXmlGenerator::write_to_file(const std::string& filename) const {
     file << "  <Description>\n";
     file << "    <Name Title=\"BDN Subtitle\"/>\n";
     file << "    <Language Code=\"und\"/>\n";
-    file << "    <Format VideoFormat=\"" << info_.video_width << "x" << info_.video_height << "\" ";
+    file << "    <Format VideoFormat=\"" << info_.video_format << "\" ";
     file << "FrameRate=\"" << std::fixed << std::setprecision(3) << info_.fps << "\" ";
     file << "DropFrame=\"False\"/>\n";
     file << "  </Description>\n";
@@ -93,6 +93,22 @@ std::string BDNXmlGenerator::time_to_tc(double seconds, double fps) {
 double BDNXmlGenerator::adjust_timestamp(double timestamp, double start_time) {
     // start_time を 00:00:00.000 として扱うため、timestamp から start_time を減算
     return timestamp - start_time;
+}
+
+std::string BDNXmlGenerator::determine_video_format(int canvas_height, bool is_interlaced) {
+    // canvas_heightとis_interlacedからVideoFormatを判定
+    if (canvas_height == 1080) {
+        return is_interlaced ? "1080i" : "1080p";
+    } else if (canvas_height == 720) {
+        // 720iはBDMV仕様上存在しないため、常に720p
+        return "720p";
+    } else if (canvas_height == 480) {
+        return is_interlaced ? "480i" : "480p";
+    } else {
+        // その他の解像度の場合はデフォルトで1080pを返す
+        // エラーを出すべきか、デフォルト値を返すべきかは要検討
+        return "1080p";
+    }
 }
 
 std::string BDNXmlGenerator::format_tc(int hours, int minutes, int seconds, int frames) {

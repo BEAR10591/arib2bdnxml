@@ -23,6 +23,7 @@ struct VideoInfo {
     double start_time = 0.0;  // ffprobe の start_time に相当
     AVRational time_base;
     AVRational sample_aspect_ratio;  // SAR (Sample Aspect Ratio)
+    bool is_interlaced = false;  // インターレース判定
 };
 
 struct SubtitleFrame {
@@ -41,7 +42,9 @@ public:
     ~FFmpegWrapper();
     
     // ファイルを開く
-    bool open_file(const std::string& filename);
+    bool open_file(const std::string& filename, 
+                   std::optional<double> ss = std::nullopt,
+                   std::optional<double> to = std::nullopt);
     
     // 動画情報を取得
     VideoInfo get_video_info() const;
@@ -67,11 +70,14 @@ private:
     AVCodecContext* codec_ctx_ = nullptr;
     const AVCodec* codec_ = nullptr;
     int subtitle_stream_index_ = -1;
+    int video_stream_index_ = -1;  // 動画ストリームのインデックス（シーク用）
     VideoInfo video_info_;
     bool user_fps_set_ = false;
     double user_fps_ = 0.0;
     int canvas_width_ = 0;  // canvas_size の幅
     int canvas_height_ = 0;  // canvas_size の高さ
+    std::optional<double> ss_;  // シーク開始時刻（秒単位）
+    std::optional<double> to_;  // シーク終了時刻（秒単位）
     
     // デコーダーオプションを設定
     

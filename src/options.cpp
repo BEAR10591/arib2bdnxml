@@ -3,6 +3,7 @@
 #include <sstream>
 #include <cstring>
 #include <algorithm>
+#include <iomanip>
 
 // 除外する libaribcaption オプション
 static const std::vector<std::string> EXCLUDED_OPTS = {
@@ -10,6 +11,83 @@ static const std::vector<std::string> EXCLUDED_OPTS = {
     "ass_single_rect",
     "canvas_size"
 };
+
+// 時間文字列を秒数（double）に変換するヘルパー関数
+// 対応形式:
+// - 秒数（例: 123.456）
+// - HH:MM:SS（例: 01:23:45）
+// - HH:MM:SS.mmm（例: 01:23:45.123）
+// - MM:SS（例: 23:45）
+// - MM:SS.mmm（例: 23:45.123）
+static double parse_time_string(const std::string& time_str) {
+    // コロンの数を数える
+    size_t colon_count = std::count(time_str.begin(), time_str.end(), ':');
+    
+    if (colon_count == 2) {
+        // HH:MM:SS または HH:MM:SS.mmm 形式
+        size_t dot_pos = time_str.find('.');
+        if (dot_pos != std::string::npos) {
+            // 小数点がある場合
+            std::string time_part = time_str.substr(0, dot_pos);
+            std::string ms_part = "0." + time_str.substr(dot_pos + 1);
+            double milliseconds = std::stod(ms_part);
+            
+            std::istringstream iss(time_part);
+            int hours, minutes, seconds;
+            char colon1, colon2;
+            
+            if (iss >> hours >> colon1 >> minutes >> colon2 >> seconds && 
+                colon1 == ':' && colon2 == ':') {
+                return hours * 3600.0 + minutes * 60.0 + seconds + milliseconds;
+            }
+        } else {
+            // 小数点がない場合
+            std::istringstream iss(time_str);
+            int hours, minutes, seconds;
+            char colon1, colon2;
+            
+            if (iss >> hours >> colon1 >> minutes >> colon2 >> seconds && 
+                colon1 == ':' && colon2 == ':') {
+                return hours * 3600.0 + minutes * 60.0 + seconds;
+            }
+        }
+    } else if (colon_count == 1) {
+        // MM:SS または MM:SS.mmm 形式
+        size_t dot_pos = time_str.find('.');
+        if (dot_pos != std::string::npos) {
+            // 小数点がある場合
+            std::string time_part = time_str.substr(0, dot_pos);
+            std::string ms_part = "0." + time_str.substr(dot_pos + 1);
+            double milliseconds = std::stod(ms_part);
+            
+            std::istringstream iss(time_part);
+            int minutes, seconds;
+            char colon;
+            
+            if (iss >> minutes >> colon >> seconds && colon == ':') {
+                return minutes * 60.0 + seconds + milliseconds;
+            }
+        } else {
+            // 小数点がない場合
+            std::istringstream iss(time_str);
+            int minutes, seconds;
+            char colon;
+            
+            if (iss >> minutes >> colon >> seconds && colon == ':') {
+                return minutes * 60.0 + seconds;
+            }
+        }
+    }
+    
+    // 秒数として解析を試みる
+    try {
+        return std::stod(time_str);
+    } catch (...) {
+        std::cerr << "エラー: 無効な時間形式: " << time_str << std::endl;
+        std::cerr << "有効な形式: 秒数（例: 123.456）または HH:MM:SS.mmm（例: 01:23:45.123）" << std::endl;
+        std::exit(1);
+    }
+}
 
 static bool is_excluded_opt(const std::string& key) {
     return std::find(EXCLUDED_OPTS.begin(), EXCLUDED_OPTS.end(), key) != EXCLUDED_OPTS.end();
@@ -143,6 +221,16 @@ Options parse_options(int argc, char* argv[]) {
             opts.output_dir = argv[++i];
         } else if ((arg == "--resolution" || arg == "-r") && i + 1 < argc) {
             opts.resolution = argv[++i];
+        } else if (arg == "--ss" && i + 1 < argc) {
+            std::string ss_str = argv[++i];
+            double ss_value = parse_time_string(ss_str);
+            opts.ss = ss_value;
+            std::cerr << "DEBUG: --ss 解析: '" << ss_str << "' -> " << ss_value << "秒" << std::endl;
+        } else if (arg == "--to" && i + 1 < argc) {
+            std::string to_str = argv[++i];
+            double to_value = parse_time_string(to_str);
+            opts.to = to_value;
+            std::cerr << "DEBUG: --to 解析: '" << to_str << "' -> " << to_value << "秒" << std::endl;
         } else if (arg == "--debug") {
             opts.debug = true;
         } else if (arg[0] != '-') {
@@ -178,12 +266,19 @@ void print_help(const char* program_name) {
     std::cout << "                            libaribcaption オプション（key=value,key=value 形式）\n";
     std::cout << "                            除外: sub_type, ass_single_rect, canvas_size\n";
     std::cout << "  --output <ディレクトリ>   出力ディレクトリ\n";
+    std::cout << "  --ss <時刻>               タイムスタンプ調整用の開始時刻（秒数またはHH:MM:SS.mmm形式）\n";
+    std::cout << "                            ffmpeg -ss でカットした動画用（ミリ秒まで対応）\n";
+    std::cout << "                            例: --ss 300.5 または --ss 00:05:00.500\n";
+    std::cout << "  --to <時刻>               タイムスタンプ調整用の終了時刻（秒数またはHH:MM:SS.mmm形式）\n";
+    std::cout << "                            ffmpeg -to でカットした動画用（ミリ秒まで対応）\n";
+    std::cout << "                            指定した時刻以降の字幕をスキップし、終了時刻を制限\n";
+    std::cout << "                            例: --to 3300.5 または --to 00:55:00.500\n";
     std::cout << "  --debug                   デバッグログを出力\n";
     std::cout << "  --help, -h                このヘルプを表示\n";
     std::cout << "  --version, -v             バージョン情報を表示\n";
 }
 
 void print_version() {
-    std::cout << "arib2bdnxml 0.1.0\n";
+    std::cout << "arib2bdnxml 0.1.1\n";
 }
 

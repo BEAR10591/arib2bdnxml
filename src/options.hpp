@@ -19,6 +19,10 @@ struct Options {
     // libaribcaption オプション（key=value のペア）
     std::map<std::string, std::string> libaribcaption_opts;
     
+    // タイムスタンプ調整用オプション（ffmpeg -ss/-to でカットした動画用）
+    std::optional<double> ss;  // 開始時刻（秒単位、ミリ秒まで対応）
+    std::optional<double> to;  // 終了時刻（秒単位、ミリ秒まで対応）
+    
     // デバッグモード
     bool debug = false;
     

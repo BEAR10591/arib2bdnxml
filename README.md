@@ -9,6 +9,8 @@
 - .ts/.m2ts ファイルから ARIB 字幕を抽出
 - libaribcaption（FFmpeg 経由）を使用してビットマップにデコード
 - BDN XML + PNG を生成
+- ffmpeg でカットした動画用のタイムスタンプ調整（`--ss`, `--to` オプション）
+- VideoFormat の自動判定（1080p, 1080i, 720p, 480p, 480i）
 
 ## 要件
 
@@ -91,6 +93,14 @@ arib2bdnxml [オプション] <入力ファイル>
   - 動画解像度が 1280x720 の場合 → 1280x720
   - 動画解像度が 720x480 の場合 → 720x480
   - それ以外の解像度の場合はエラーで中断されます
+- `--ss <時刻>`: タイムスタンプ調整用の開始時刻（秒数または HH:MM:SS.mmm 形式）
+  - ffmpeg の `-ss` オプションでカットした動画用
+  - 指定した時刻より前の字幕をスキップし、タイムコードを 00:00:00.000 から開始するように調整
+  - ミリ秒まで対応（例: `--ss 300.5` または `--ss 00:05:00.500`）
+- `--to <時刻>`: タイムスタンプ調整用の終了時刻（秒数または HH:MM:SS.mmm 形式）
+  - ffmpeg の `-to` オプションでカットした動画用
+  - 指定した時刻以降の字幕をスキップし、終了時刻を制限
+  - ミリ秒まで対応（例: `--to 3300.5` または `--to 00:55:00.500`）
 - `--libaribcaption-opt <オプション>`: libaribcaption オプション（key=value,key=value 形式）
   - 除外: `sub_type`, `ass_single_rect`, `canvas_size`
   - `canvas_size` は `--resolution` オプションで指定してください
@@ -99,6 +109,15 @@ arib2bdnxml [オプション] <入力ファイル>
 - `--debug`: デバッグログを出力
 - `--help, -h`: ヘルプを表示
 - `--version, -v`: バージョン情報を表示
+
+### VideoFormat の自動判定
+
+生成される BDN XML の `VideoFormat` 属性は、以下のルールで自動判定されます：
+
+- **canvas_size の縦解像度**と**入力.tsファイルのインターレース判定**に基づいて決定
+- 1080 ライン: インターレース → `1080i`、プログレッシブ → `1080p`
+- 720 ライン: 常に `720p`（BDMV 仕様上 720i は存在しない）
+- 480 ライン: インターレース → `480i`、プログレッシブ → `480p`
 
 ### 例
 
@@ -114,7 +133,22 @@ arib2bdnxml --output ./output input.ts
 
 # libaribcaption オプションを指定
 arib2bdnxml --libaribcaption-opt font="Hiragino Maru Gothic ProN, Rounded M+ 1m for ARIB" input.ts
+
+# ffmpeg でカットした動画用（00:05:00.500 から 00:55:00.500 まで）
+arib2bdnxml --ss 00:05:00.500 --to 00:55:00.500 input.ts
+
+# 秒数で指定（300.5 秒から 3300.5 秒まで）
+arib2bdnxml --ss 300.5 --to 3300.5 input.ts
+
+# 複数のオプションを組み合わせ
+arib2bdnxml --resolution 1440x1080 --ss 00:00:09.871 --to 00:20:09.870 \
+  --libaribcaption-opt font="Hiragino Maru Gothic ProN, Rounded M+ 1m for ARIB" \
+  --output ./output input.ts
 ```
+
+### BDN XML + PNG から .sup ファイルへの変換
+
+生成された BDN XML + PNG ファイルは、[SUPer](https://github.com/quietvoid/super) を使用して Blu-ray 用の .sup ファイル（PGS 字幕）に変換できます。
 
 ## ライセンス
 
@@ -123,6 +157,7 @@ arib2bdnxml --libaribcaption-opt font="Hiragino Maru Gothic ProN, Rounded M+ 1m 
 ## 参考
 
 - [ass2bdnxml](https://github.com/cubicibo/ass2bdnxml)
+  - オリジナル: [mia-0/ass2bdnxml](https://github.com/mia-0/ass2bdnxml)
 - [libaribcaption](https://github.com/xqq/libaribcaption)
 - [FFmpeg](https://ffmpeg.org/)
 - [gyan.dev FFmpeg Builds](https://www.gyan.dev/ffmpeg/builds/) (Windows)

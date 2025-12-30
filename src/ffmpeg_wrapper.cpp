@@ -25,7 +25,12 @@ FFmpegWrapper::~FFmpegWrapper() {
     close();
 }
 
-bool FFmpegWrapper::open_file(const std::string& filename) {
+bool FFmpegWrapper::open_file(const std::string& filename, 
+                               std::optional<double> ss,
+                               std::optional<double> to) {
+    // ss_とto_を保存
+    ss_ = ss;
+    to_ = to;
     DEBUG_LOG("open_file: 開始");
     
     // ARIB 字幕が途中から始まる可能性があるため、より多くのデータを解析する
@@ -113,15 +118,15 @@ bool FFmpegWrapper::open_file(const std::string& filename) {
     }
     
     // 動画ストリームを探して情報を取得
-    int video_stream_index = -1;
+    video_stream_index_ = -1;
     for (unsigned int i = 0; i < format_ctx_->nb_streams; i++) {
         if (format_ctx_->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
-            video_stream_index = i;
+            video_stream_index_ = i;
             break;
         }
     }
-    if (video_stream_index >= 0) {
-        AVStream* video_stream = format_ctx_->streams[video_stream_index];
+    if (video_stream_index_ >= 0) {
+        AVStream* video_stream = format_ctx_->streams[video_stream_index_];
         video_info_.width = video_stream->codecpar->width;
         video_info_.height = video_stream->codecpar->height;
         
@@ -145,6 +150,15 @@ bool FFmpegWrapper::open_file(const std::string& filename) {
             video_info_.fps = av_q2d(video_stream->r_frame_rate);
         }
         
+        // インターレース判定
+        // AV_FIELD_PROGRESSIVE以外の場合はインターレースと判定
+        if (video_stream->codecpar->field_order != AV_FIELD_PROGRESSIVE &&
+            video_stream->codecpar->field_order != AV_FIELD_UNKNOWN) {
+            video_info_.is_interlaced = true;
+        } else {
+            video_info_.is_interlaced = false;
+        }
+        
         video_info_.time_base = video_stream->time_base;
     }
     
@@ -154,6 +168,8 @@ bool FFmpegWrapper::open_file(const std::string& filename) {
     } else {
         video_info_.start_time = 0.0;
     }
+    
+    // ss_とto_は保存済み（main.cpp側でフィルタリングするため、ここではシークしない）
     
     return true;
 }
