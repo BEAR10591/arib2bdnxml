@@ -1,16 +1,12 @@
 # ビルドディレクトリ
 build/
+target/
 *.o
 *.a
 *.so
 *.dylib
 *.dll
 *.exe
-
-# Meson
-meson-private/
-meson-info/
-meson-logs/
 
 # IDE
 .vscode/

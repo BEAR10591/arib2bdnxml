@@ -1,165 +1,153 @@
 # arib2bdnxml
 
-.ts/.m2ts ファイル内の ARIB 字幕を、libaribcaption を使用してビットマップにデコードし、Blu-ray 用 PGS 字幕作成に必要な BDN XML + PNG を生成するツールです。
+[日本語](README.ja.md)
 
-**注意**: 本プロジェクトのコードは100%生成AIによって作成されたものです。
+Extracts ARIB subtitles from .ts/.m2ts files, decodes them to bitmap via libaribcaption (through FFmpeg), and generates BDN XML + PNG for Blu-ray PGS subtitle authoring.
 
-## 機能
+**Supported platforms**: macOS / Windows only
 
-- .ts/.m2ts ファイルから ARIB 字幕を抽出
-- libaribcaption（FFmpeg 経由）を使用してビットマップにデコード
-- BDN XML + PNG を生成
-- ffmpeg でカットした動画用のタイムスタンプ調整（`--ss`, `--to` オプション）
-- VideoFormat の自動判定（1080p, 1080i, 720p, 480p, 480i）
+## Features
 
-## 要件
+- Extract ARIB subtitles from .ts/.m2ts files
+- Decode to bitmap using libaribcaption (via FFmpeg)
+- Generate BDN XML + PNG
+- Timestamp adjustment for footage cut with ffmpeg (`--ss`, `--to` options)
+- Automatic VideoFormat detection (1080p, 1080i, 720p, 480p, 480i)
 
-- C++17 対応コンパイラ
-- Meson ビルドシステム
-- FFmpeg（libavcodec, libavformat, libavutil, libswscale）
-- libaribcaption（FFmpeg に統合されたデコーダー）
-- libpng
+## Requirements
 
-## ビルド
+- Rust (edition 2021)
+- FFmpeg (libavcodec, libavformat, libavutil) with **libaribcaption** enabled
+- Build time: clang (for bindgen), pkg-config
 
-### 依存関係のインストール
+Standard FFmpeg builds do **not** enable **libaribcaption**. Use one of the following to obtain an FFmpeg build with libaribcaption.
 
-**重要**: 通常のパッケージマネージャーからインストールされる標準のFFmpegには`libaribcaption`が有効になっていません。以下の方法で`libaribcaption`が有効なFFmpegを入手してください。
+## Setting up FFmpeg
 
-#### Windows
-
-**ビルド済みFFmpegを使用**（推奨）
-
-1. [gyan.dev FFmpeg Builds](https://www.gyan.dev/ffmpeg/builds/) または [BtbN FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) からFFmpegをダウンロード
-2. ダウンロードしたFFmpegの`bin`ディレクトリをPATHに追加
-
-その他の依存関係（[MSYS2](https://www.msys2.org/)を使用する場合）：
+### macOS (Homebrew tap: ffmpeg-ursus)
 
 ```bash
-pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-meson \
-    mingw-w64-x86_64-libpng
+brew install bear10591/tap/ffmpeg-ursus
 ```
 
-#### Linux
+ffmpeg-ursus is **keg-only**, so it is not on the default PATH or visible to pkg-config. Set `FFMPEG_DIR` when building:
 
-**ビルド済みFFmpegを使用**（推奨）
-
-1. [BtbN FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) からFFmpegをダウンロード
-2. ダウンロードしたFFmpegの`bin`ディレクトリをPATHに追加
-
-その他の依存関係：
-
-**Ubuntu/Debian:**
 ```bash
-sudo apt update
-sudo apt install -y build-essential meson libpng-dev
+export FFMPEG_DIR="$(brew --prefix ffmpeg-ursus)"
+cargo build --release
 ```
 
-**Fedora/RHEL:**
-```bash
-sudo dnf install -y gcc-c++ meson libpng-devel
+See: [bear10591/homebrew-tap](https://github.com/BEAR10591/homebrew-tap)
+
+### Windows (Gyan.dev FFmpeg full build)
+
+Download the **full build** (with include/lib for development) from [gyan.dev FFmpeg Builds](https://www.gyan.dev/ffmpeg/builds/) and extract it.
+
+- Example: extract `ffmpeg-release-full.7z` to get a folder like `ffmpeg-x.x.x-full_build`.
+- Set that folder as `FFMPEG_DIR` when building (`include` and `lib` must be directly under it).
+
+```powershell
+$env:FFMPEG_DIR = "C:\path\to\ffmpeg-x.x.x-full_build"
+cargo build --release
 ```
 
-#### macOS
+The “bin only” build does not include development files; the **full** build is required.
 
-**Homebrew tapを使用**（推奨）
+## Build
 
 ```bash
-brew install bear10591/tap/ffmpeg meson libpng
+cargo build --release
 ```
 
-参考: [bear10591/homebrew-tap](https://github.com/BEAR10591/homebrew-tap)
+The executable is produced at `target/release/arib2bdnxml` (macOS) or `target/release/arib2bdnxml.exe` (Windows).
 
-### ビルド手順
+## Tests
 
 ```bash
-meson setup build
-meson compile -C build
+cargo test
 ```
 
-ビルドされた実行ファイルは `build/arib2bdnxml`（Linux/macOS）または `build/arib2bdnxml.exe`（Windows）に生成されます。
+FFmpeg must be available for linking; run tests in an environment where the FFmpeg above is set up.
 
-## 使用方法
+## Usage
 
 ```bash
-arib2bdnxml [オプション] <入力ファイル>
+arib2bdnxml [options] <input file>
 ```
 
-### オプション
+### Options
 
-- `--resolution, -r <解像度>`: 出力解像度（1920x1080, 1440x1080, 1280x720, 720x480）
-  - 指定がない場合は動画解像度に基づいて自動決定されます
-  - 動画解像度が 1920x1080 または 1440x1080 の場合 → 1920x1080
-  - 動画解像度が 1280x720 の場合 → 1280x720
-  - 動画解像度が 720x480 の場合 → 720x480
-  - それ以外の解像度の場合はエラーで中断されます
-- `--ss <時刻>`: タイムスタンプ調整用の開始時刻（秒数または HH:MM:SS.mmm 形式）
-  - ffmpeg の `-ss` オプションでカットした動画用
-  - 指定した時刻より前の字幕をスキップし、タイムコードを 00:00:00.000 から開始するように調整
-  - ミリ秒まで対応（例: `--ss 300.5` または `--ss 00:05:00.500`）
-- `--to <時刻>`: タイムスタンプ調整用の終了時刻（秒数または HH:MM:SS.mmm 形式）
-  - ffmpeg の `-to` オプションでカットした動画用
-  - 指定した時刻以降の字幕をスキップし、終了時刻を制限
-  - ミリ秒まで対応（例: `--to 3300.5` または `--to 00:55:00.500`）
-- `--libaribcaption-opt <オプション>`: libaribcaption オプション（key=value,key=value 形式）
-  - 除外: `sub_type`, `ass_single_rect`, `canvas_size`
-  - `canvas_size` は `--resolution` オプションで指定してください
-  - デフォルト値: `outline_width=0.0`, `replace_msz_ascii=0`, `replace_msz_japanese=0`, `replace_drcs=0`
-- `--output <ディレクトリ>`: 出力ディレクトリ（省略時は入力ファイルと同じディレクトリに`<動画ファイル名>_bdnxml`を作成）
-- `--debug`: デバッグログを出力
-- `--help, -h`: ヘルプを表示
-- `--version, -v`: バージョン情報を表示
+- `--resolution, -r <resolution>`: Output resolution (1920x1080, 1440x1080, 1280x720, 720x480)
+  - If omitted, determined from the video resolution
+  - 1920x1080 or 1440x1080 → 1920x1080
+  - 1280x720 → 1280x720
+  - 720x480 → 720x480
+  - Other resolutions cause an error
+- `--ss <time>`: Start time for timestamp adjustment (seconds or HH:MM:SS.mmm)
+  - For video cut with ffmpeg’s `-ss`
+  - Skips subtitles before this time and adjusts timecodes to start at 00:00:00.000
+  - Supports milliseconds (e.g. `--ss 300.5` or `--ss 00:05:00.500`)
+- `--to <time>`: End time for timestamp adjustment (seconds or HH:MM:SS.mmm)
+  - For video cut with ffmpeg’s `-to`
+  - Skips subtitles at or after this time
+  - Supports milliseconds (e.g. `--to 3300.5` or `--to 00:55:00.500`)
+- `--libaribcaption-opt <options>`: libaribcaption options (key=value,key=value)
+  - Excluded: `sub_type`, `ass_single_rect`, `canvas_size`
+  - Use `--resolution` for `canvas_size`
+  - Defaults: `outline_width=0.0`, `replace_msz_ascii=0`, `replace_msz_japanese=0`, `replace_drcs=0`
+- `--output <directory>`: Output directory (default: `<input basename>_bdnxml` next to the input file)
+- `--debug`: Enable debug logging
+- `--help, -h`: Show help
+- `--version, -v`: Show version
 
-### VideoFormat の自動判定
+### VideoFormat auto-detection
 
-生成される BDN XML の `VideoFormat` 属性は、以下のルールで自動判定されます：
+The BDN XML `VideoFormat` attribute is determined as follows:
 
-- **canvas_size の縦解像度**と**入力.tsファイルのインターレース判定**に基づいて決定
-- 1080 ライン: インターレース → `1080i`、プログレッシブ → `1080p`
-- 720 ライン: 常に `720p`（BDMV 仕様上 720i は存在しない）
-- 480 ライン: インターレース → `480i`、プログレッシブ → `480p`
+- Based on **canvas height** and **interlaced flag** from the input .ts
+- 1080 lines: interlaced → `1080i`, progressive → `1080p`
+- 720 lines: always `720p` (no 720i in BDMV spec)
+- 480 lines: interlaced → `480i`, progressive → `480p`
 
-### 例
+### Examples
 
 ```bash
-# 基本的な使用
+# Basic usage
 arib2bdnxml input.ts
 
-# 解像度を指定
+# Specify resolution
 arib2bdnxml --resolution 1920x1080 input.ts
 
-# 出力ディレクトリを指定
+# Specify output directory
 arib2bdnxml --output ./output input.ts
 
-# libaribcaption オプションを指定
+# libaribcaption options
 arib2bdnxml --libaribcaption-opt font="Hiragino Maru Gothic ProN, Rounded M+ 1m for ARIB" input.ts
 
-# ffmpeg でカットした動画用（00:05:00.500 から 00:55:00.500 まで）
+# For video cut from 00:05:00.500 to 00:55:00.500
 arib2bdnxml --ss 00:05:00.500 --to 00:55:00.500 input.ts
 
-# 秒数で指定（300.5 秒から 3300.5 秒まで）
+# Time in seconds (300.5 to 3300.5)
 arib2bdnxml --ss 300.5 --to 3300.5 input.ts
 
-# 複数のオプションを組み合わせ
+# Combined options
 arib2bdnxml --resolution 1440x1080 --ss 00:00:09.871 --to 00:20:09.870 \
   --libaribcaption-opt font="Hiragino Maru Gothic ProN, Rounded M+ 1m for ARIB" \
   --output ./output input.ts
 ```
 
-### BDN XML + PNG から .sup ファイルへの変換
+### BDN XML + PNG to .sup
 
-生成された BDN XML + PNG ファイルは、[SUPer](https://github.com/quietvoid/super) を使用して Blu-ray 用の .sup ファイル（PGS 字幕）に変換できます。
+Use [SUPer](https://github.com/quietvoid/super) to convert the generated BDN XML + PNG into Blu-ray .sup (PGS) subtitle files.
 
-## ライセンス
+## License
 
-（LICENSE ファイルを参照）
+See the LICENSE file.
 
-## 参考
+## References
 
-- [ass2bdnxml](https://github.com/cubicibo/ass2bdnxml)
-  - オリジナル: [mia-0/ass2bdnxml](https://github.com/mia-0/ass2bdnxml)
+- [ass2bdnxml](https://github.com/cubicibo/ass2bdnxml) — original: [mia-0/ass2bdnxml](https://github.com/mia-0/ass2bdnxml)
 - [libaribcaption](https://github.com/xqq/libaribcaption)
 - [FFmpeg](https://ffmpeg.org/)
-- [gyan.dev FFmpeg Builds](https://www.gyan.dev/ffmpeg/builds/) (Windows)
-- [BtbN FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) (Windows/Linux)
-- [bear10591/homebrew-tap](https://github.com/BEAR10591/homebrew-tap) (macOS)
+- [gyan.dev FFmpeg Builds](https://www.gyan.dev/ffmpeg/builds/) (Windows: full build recommended)
+- [bear10591/homebrew-tap](https://github.com/BEAR10591/homebrew-tap) (macOS: ffmpeg-ursus)
