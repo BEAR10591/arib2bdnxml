@@ -6,45 +6,74 @@ mod ffmpeg_sys;
 mod options;
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use clap::Parser;
 
-use bdn::{adjust_timestamp, determine_video_format, time_to_tc, BdnInfo, BdnXmlGenerator, SubtitleEvent};
+use bdn::{adjust_timestamp, time_to_tc, BdnInfo, BdnXmlGenerator, SubtitleEvent};
 use bitmap::{generate_png_filename, save_bitmap_as_png};
-use config::{
-    adjust_timestamp_for_range, determine_canvas_size, parse_canvas_size,
-    setup_libaribcaption_defaults,
-};
-use ffmpeg::{FfmpegWrapper, SubtitleFrame};
-use options::{parse_libaribcaption_opts, parse_time_string};
+use config::{determine_canvas_size, setup_libaribcaption_defaults};
+use ffmpeg::{probe_video_resolution, FfmpegWrapper, SubtitleFrame};
+use options::parse_libaribcaption_opts;
 
 const VERSION: &str = "0.1.1";
+
+/// Derives candidate base names for companion .mkv from .mks stem.
+/// Strips from the right: .forced, .jpn/.eng, then .NN (track number).
+/// e.g. "MOVIE.01.jpn.forced" -> ["MOVIE.01.jpn.forced", "MOVIE.01.jpn", "MOVIE.01", "MOVIE"]
+/// so that we try MOVIE.mkv, MOVIE.01.mkv, ... and match MOVIE.mkv.
+fn companion_mkv_base_candidates(stem: &str) -> Vec<String> {
+    if stem.is_empty() {
+        return vec![];
+    }
+    let mut out = vec![stem.to_string()];
+    let mut rest = stem;
+    while let Some(trimmed) = rest
+        .strip_suffix(".forced")
+        .or_else(|| rest.strip_suffix(".jpn"))
+        .or_else(|| rest.strip_suffix(".eng"))
+        .or_else(|| rest.strip_suffix(".japanese"))
+        .or_else(|| rest.strip_suffix(".english"))
+    {
+        rest = trimmed;
+        if !rest.is_empty() {
+            out.push(rest.to_string());
+        }
+    }
+    while let Some(trimmed) = strip_trailing_digits(rest) {
+        rest = trimmed;
+        if !rest.is_empty() {
+            out.push(rest.to_string());
+        }
+    }
+    out.dedup();
+    out
+}
+
+/// Strips trailing .NN (e.g. .01, .001) from the end of s.
+fn strip_trailing_digits(s: &str) -> Option<&str> {
+    let t = s.trim_end_matches(|c: char| c.is_ascii_digit());
+    (t.len() < s.len() && t.ends_with('.')).then(|| t.strip_suffix('.').unwrap_or(t))
+}
 
 #[derive(Parser)]
 #[command(name = "arib2bdnxml")]
 #[command(version = VERSION)]
-#[command(about = "Extract ARIB subtitles from .ts/.m2ts and generate BDN XML + PNG using libaribcaption (via FFmpeg)")]
+#[command(about = "Extract ARIB subtitles from .ts/.m2ts/.mkv/.mks and generate BDN XML + PNG using libaribcaption (via FFmpeg)")]
 struct Cli {
-    #[arg(short, long, value_name = "RESOLUTION")]
-    resolution: Option<String>,
+    #[arg(short, long)]
+    anamorphic: bool,
 
-    #[arg(long, value_name = "OPTIONS")]
-    libaribcaption_opt: Vec<String>,
+    #[arg(long = "arib-params", value_name = "OPTIONS")]
+    arib_params: Vec<String>,
 
-    #[arg(long, value_name = "DIR")]
+    #[arg(short, long, value_name = "DIR")]
     output: Option<String>,
 
-    #[arg(long, value_name = "TIME")]
-    ss: Option<String>,
-
-    #[arg(long, value_name = "TIME")]
-    to: Option<String>,
-
-    #[arg(long)]
+    #[arg(short, long)]
     debug: bool,
 
-    #[arg(help = "Input file (.ts / .m2ts)")]
+    #[arg(help = "Input file (.ts, .m2ts, .mkv, .mks)")]
     input_file: Option<String>,
 }
 
@@ -80,33 +109,9 @@ fn run() -> anyhow::Result<()> {
     }
 
     let mut libaribcaption_opts = HashMap::new();
-    for s in &cli.libaribcaption_opt {
+    for s in &cli.arib_params {
         for (k, v) in parse_libaribcaption_opts(s) {
             libaribcaption_opts.insert(k, v);
-        }
-    }
-
-    let ss = cli
-        .ss
-        .as_ref()
-        .map(|s| parse_time_string(s).map_err(|e| anyhow::anyhow!("{}", e)))
-        .transpose()?;
-    let to = cli
-        .to
-        .as_ref()
-        .map(|s| parse_time_string(s).map_err(|e| anyhow::anyhow!("{}", e)))
-        .transpose()?;
-
-    if cli.debug {
-        if let Some(s) = &cli.ss {
-            if let Ok(v) = parse_time_string(s) {
-                eprintln!("DEBUG: --ss parsed: '{}' -> {}s", s, v);
-            }
-        }
-        if let Some(s) = &cli.to {
-            if let Ok(v) = parse_time_string(s) {
-                eprintln!("DEBUG: --to parsed: '{}' -> {}s", s, v);
-            }
         }
     }
 
@@ -128,31 +133,69 @@ fn run() -> anyhow::Result<()> {
 
     let mut ffmpeg = FfmpegWrapper::new();
     ffmpeg.set_debug(cli.debug);
-    ffmpeg.open_file(&input_file, ss, to)?;
+    ffmpeg.open_file(&input_file)?;
 
     let video_info = ffmpeg.get_video_info();
+    let (effective_width, effective_height) = if video_info.width != 0 || video_info.height != 0 {
+        (video_info.width, video_info.height)
+    } else if cli.anamorphic {
+        // .mks or no video: look for companion .mkv (same or parent dir) by trying base names
+        // derived from stem (e.g. MOVIE.01.jpn.forced -> MOVIE, MOVIE.01, ...) to match MOVIE.mkv
+        let input_path = Path::new(&input_file);
+        let stem = input_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        let parent = input_path.parent().unwrap_or(Path::new("."));
+        let base_names = companion_mkv_base_candidates(stem);
+        let mut mkv_candidates: Vec<PathBuf> = Vec::new();
+        for base in &base_names {
+            mkv_candidates.push(parent.join(format!("{}.mkv", base)));
+            if let Some(gp) = parent.parent() {
+                mkv_candidates.push(gp.join(format!("{}.mkv", base)));
+            }
+        }
+        let mut resolved = (0, 0);
+        for path in &mkv_candidates {
+            if path.exists() {
+                if let Ok((w, h)) = probe_video_resolution(path.to_str().unwrap_or("")) {
+                    if (w, h) == (1440, 1080) || (w, h) == (1280, 720) || (w, h) == (720, 480) {
+                        if cli.debug {
+                            eprintln!("Companion .mkv resolution: {}x{} ({})", w, h, path.display());
+                        }
+                        resolved = (w, h);
+                        break;
+                    }
+                }
+            }
+        }
+        resolved
+    } else {
+        (0, 0)
+    };
     let canvas_size = determine_canvas_size(
-        &cli.resolution,
-        video_info.width,
-        video_info.height,
+        effective_width,
+        effective_height,
+        cli.anamorphic,
         cli.debug,
     )?;
     libaribcaption_opts.insert("canvas_size".to_string(), canvas_size.clone());
     setup_libaribcaption_defaults(&mut libaribcaption_opts);
 
-    let (canvas_width, canvas_height) = parse_canvas_size(&canvas_size)?;
     let fps = if video_info.fps > 0.0 {
         video_info.fps
     } else {
         29.97
     };
-    let video_format = determine_video_format(canvas_height, video_info.is_interlaced);
-
+    let video_format = match canvas_size.as_str() {
+        "720x480" => "ntsc".to_string(),
+        "1280x720" => "720p".to_string(),
+        "1440x1080" => "1440x1080".to_string(),
+        _ => "1080p".to_string(),
+    };
     let bdn_info = BdnInfo {
-        video_width: canvas_width,
-        video_height: canvas_height,
         fps,
-        video_format: video_format.to_string(),
+        video_format,
     };
 
     ffmpeg.init_decoder(&libaribcaption_opts)?;
@@ -182,15 +225,7 @@ fn run() -> anyhow::Result<()> {
 
         if subtitle_frame.bitmap.is_none() && subtitle_frame.timestamp > 0.0 {
             if let Some(last) = events.last_mut() {
-                let mut clear_ts = adjust_timestamp(subtitle_frame.timestamp, video_info.start_time);
-                if let Some(t) = to {
-                    if clear_ts > t {
-                        clear_ts = t;
-                    }
-                }
-                if let Some(s) = ss {
-                    clear_ts -= s;
-                }
+                let clear_ts = adjust_timestamp(subtitle_frame.timestamp, video_info.start_time);
                 last.out_tc = time_to_tc(clear_ts, bdn_info.fps);
             }
             if !advance_to_next_frame(&mut subtitle_frame, &mut next_frame, &ffmpeg) {
@@ -240,15 +275,7 @@ fn run() -> anyhow::Result<()> {
             adjusted_start + 1.0
         };
 
-        let (mut adj_start, mut adj_end) = (adjusted_start, adjusted_end);
-        if !adjust_timestamp_for_range(&mut adj_start, &mut adj_end, ss, to, cli.debug) {
-            if !advance_to_next_frame(&mut subtitle_frame, &mut next_frame, &ffmpeg) {
-                break;
-            }
-            continue;
-        }
-
-        if adj_start >= adj_end {
+        if adjusted_start >= adjusted_end {
             if !advance_to_next_frame(&mut subtitle_frame, &mut next_frame, &ffmpeg) {
                 break;
             }
@@ -266,8 +293,8 @@ fn run() -> anyhow::Result<()> {
         }
 
         events.push(SubtitleEvent {
-            in_tc: time_to_tc(adj_start, bdn_info.fps),
-            out_tc: time_to_tc(adj_end, bdn_info.fps),
+            in_tc: time_to_tc(adjusted_start, bdn_info.fps),
+            out_tc: time_to_tc(adjusted_end, bdn_info.fps),
             png_file: png_filename,
             x: subtitle_frame.x,
             y: subtitle_frame.y,
@@ -316,12 +343,10 @@ fn print_help() {
         r#"Usage: arib2bdnxml [OPTIONS] <INPUT_FILE>
 
 Options:
-  -r, --resolution <RES>       Output resolution (1920x1080, 1440x1080, 1280x720, 720x480)
-  --libaribcaption-opt <OPTS>  libaribcaption options (key=value,key=value)
-  --output <DIR>               Output directory
-  --ss <TIME>                  Start time for timestamp adjustment
-  --to <TIME>                  End time for timestamp adjustment
-  --debug                      Enable debug logging
+  -a, --anamorphic             Use anamorphic output for 1440x1080 (→ 1440x1080)
+  --arib-params <OPTS>          libaribcaption options (key=value,key=value)
+  --output, -o <DIR>            Output directory
+  --debug, -d                   Enable debug logging
   -h, --help                   Show this help
   -v, --version                Show version
 "#
@@ -330,4 +355,26 @@ Options:
 
 fn print_version() {
     println!("arib2bdnxml {}", VERSION);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::companion_mkv_base_candidates;
+
+    #[test]
+    fn test_companion_mkv_base_candidates() {
+        assert!(companion_mkv_base_candidates("").is_empty());
+        let c = companion_mkv_base_candidates("MOVIE.jpn");
+        assert!(c.contains(&"MOVIE".to_string()));
+        assert!(c.contains(&"MOVIE.jpn".to_string()));
+        let c = companion_mkv_base_candidates("MOVIE.01.jpn");
+        assert!(c.contains(&"MOVIE".to_string()));
+        assert!(c.contains(&"MOVIE.01".to_string()));
+        assert!(c.contains(&"MOVIE.01.jpn".to_string()));
+        let c = companion_mkv_base_candidates("MOVIE.01.jpn.forced");
+        assert!(c.contains(&"MOVIE".to_string()));
+        assert!(c.contains(&"MOVIE.01.jpn".to_string()));
+        let c = companion_mkv_base_candidates("MOVIE.forced");
+        assert!(c.contains(&"MOVIE".to_string()));
+    }
 }

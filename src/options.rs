@@ -3,58 +3,6 @@ use std::collections::HashMap;
 /// Excluded libaribcaption option keys (handled internally or not supported).
 const EXCLUDED_OPTS: &[&str] = &["sub_type", "ass_single_rect", "canvas_size"];
 
-/// Parses a time string into seconds.
-/// Supports: seconds (123.456), HH:MM:SS, HH:MM:SS.mmm, MM:SS, MM:SS.mmm.
-pub fn parse_time_string(time_str: &str) -> Result<f64, String> {
-    let s = time_str.trim();
-    let colon_count = s.matches(':').count();
-
-    if colon_count == 2 {
-        if let Some(dot_pos) = s.find('.') {
-            let time_part = &s[..dot_pos];
-            let ms_part = format!("0.{}", &s[dot_pos + 1..]);
-            let milliseconds: f64 = ms_part.parse().map_err(|_| "invalid milliseconds")?;
-            parse_hhmmss(time_part).map(|secs| secs + milliseconds)
-        } else {
-            parse_hhmmss(s)
-        }
-    } else if colon_count == 1 {
-        if let Some(dot_pos) = s.find('.') {
-            let time_part = &s[..dot_pos];
-            let ms_part = format!("0.{}", &s[dot_pos + 1..]);
-            let milliseconds: f64 = ms_part.parse().map_err(|_| "invalid milliseconds")?;
-            parse_mmss(time_part).map(|secs| secs + milliseconds)
-        } else {
-            parse_mmss(s)
-        }
-    } else {
-        s.parse::<f64>().map_err(|_| {
-            "Invalid time format. Use seconds (e.g. 123.456) or HH:MM:SS.mmm (e.g. 01:23:45.123)".to_string()
-        })
-    }
-}
-
-fn parse_hhmmss(s: &str) -> Result<f64, String> {
-    let parts: Vec<&str> = s.split(':').collect();
-    if parts.len() != 3 {
-        return Err("HH:MM:SS requires 3 numbers".to_string());
-    }
-    let hours: i32 = parts[0].trim().parse().map_err(|_| "invalid hours")?;
-    let minutes: i32 = parts[1].trim().parse().map_err(|_| "invalid minutes")?;
-    let seconds: i32 = parts[2].trim().parse().map_err(|_| "invalid seconds")?;
-    Ok(hours as f64 * 3600.0 + minutes as f64 * 60.0 + seconds as f64)
-}
-
-fn parse_mmss(s: &str) -> Result<f64, String> {
-    let parts: Vec<&str> = s.split(':').collect();
-    if parts.len() != 2 {
-        return Err("MM:SS requires 2 numbers".to_string());
-    }
-    let minutes: i32 = parts[0].trim().parse().map_err(|_| "invalid minutes")?;
-    let seconds: i32 = parts[1].trim().parse().map_err(|_| "invalid seconds")?;
-    Ok(minutes as f64 * 60.0 + seconds as f64)
-}
-
 fn is_excluded_opt(key: &str) -> bool {
     EXCLUDED_OPTS.contains(&key)
 }
@@ -142,29 +90,6 @@ pub fn parse_libaribcaption_opts(opts_str: &str) -> HashMap<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_parse_time_seconds() {
-        assert!((parse_time_string("123.456").unwrap() - 123.456).abs() < 1e-9);
-        assert!((parse_time_string("0").unwrap()).abs() < 1e-9);
-    }
-
-    #[test]
-    fn test_parse_time_hhmmss() {
-        assert!((parse_time_string("01:23:45").unwrap() - (3600.0 + 23.0 * 60.0 + 45.0)).abs() < 1e-9);
-        assert!((parse_time_string("00:00:00").unwrap()).abs() < 1e-9);
-    }
-
-    #[test]
-    fn test_parse_time_hhmmss_mmm() {
-        let v = parse_time_string("01:23:45.123").unwrap();
-        assert!((v - (3600.0 + 23.0 * 60.0 + 45.123)).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_parse_time_mmss() {
-        assert!((parse_time_string("23:45").unwrap() - (23.0 * 60.0 + 45.0)).abs() < 1e-9);
-    }
 
     #[test]
     fn test_parse_libaribcaption_opts() {

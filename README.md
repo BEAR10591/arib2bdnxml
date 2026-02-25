@@ -2,17 +2,17 @@
 
 [日本語](README.ja.md)
 
-Extracts ARIB subtitles from .ts/.m2ts files, decodes them to bitmap via libaribcaption (through FFmpeg), and generates BDN XML + PNG for Blu-ray PGS subtitle authoring.
+Extracts ARIB subtitles from .ts/.m2ts/.mkv/.mks files, decodes them to bitmap via libaribcaption (through FFmpeg), and generates BDN XML + PNG for Blu-ray PGS subtitle authoring.
 
 **Supported platforms**: macOS / Windows only
 
 ## Features
 
-- Extract ARIB subtitles from .ts/.m2ts files
+- Extract ARIB subtitles from .ts/.m2ts/.mkv/.mks files
 - Decode to bitmap using libaribcaption (via FFmpeg)
 - Generate BDN XML + PNG
-- Timestamp adjustment for footage cut with ffmpeg (`--ss`, `--to` options)
-- Automatic VideoFormat detection (1080p, 1080i, 720p, 480p, 480i)
+- Default output 1920×1080; 1280×720 → 1280×720 (720p); 720×480 → 720×480 (ntsc); optional anamorphic 1440×1080 for 1440×1080 source only
+- VideoFormat 1080p, 720p, 1440x1080, or ntsc
 
 ## Requirements
 
@@ -75,70 +75,56 @@ FFmpeg must be available for linking; run tests in an environment where the FFmp
 arib2bdnxml [options] <input file>
 ```
 
+**Input formats**: .ts, .m2ts, .mkv, .mks. The file must contain an ARIB subtitle stream.
+
 ### Options
 
-- `--resolution, -r <resolution>`: Output resolution (1920x1080, 1440x1080, 1280x720, 720x480)
-  - If omitted, determined from the video resolution
-  - 1920x1080 or 1440x1080 → 1920x1080
-  - 1280x720 → 1280x720
-  - 720x480 → 720x480
-  - Other resolutions cause an error
-- `--ss <time>`: Start time for timestamp adjustment (seconds or HH:MM:SS.mmm)
-  - For video cut with ffmpeg’s `-ss`
-  - Skips subtitles before this time and adjusts timecodes to start at 00:00:00.000
-  - Supports milliseconds (e.g. `--ss 300.5` or `--ss 00:05:00.500`)
-- `--to <time>`: End time for timestamp adjustment (seconds or HH:MM:SS.mmm)
-  - For video cut with ffmpeg’s `-to`
-  - Skips subtitles at or after this time
-  - Supports milliseconds (e.g. `--to 3300.5` or `--to 00:55:00.500`)
-- `--libaribcaption-opt <options>`: libaribcaption options (key=value,key=value)
-  - Excluded: `sub_type`, `ass_single_rect`, `canvas_size`
-  - Use `--resolution` for `canvas_size`
-  - Defaults: `outline_width=0.0`, `replace_msz_ascii=0`, `replace_msz_japanese=0`, `replace_drcs=0`
-- `--output <directory>`: Output directory (default: `<input basename>_bdnxml` next to the input file)
-- `--debug`: Enable debug logging
+- `--anamorphic, -a`: Use anamorphic output only when source is 1440x1080 (→ 1440x1080). 1280×720 → 1280×720 (720p); 720×480 → 720×480 (ntsc); other sources get 1920x1080. For .mks (no video stream), a companion .mkv is looked up in the same or parent directory. The .mkv name is derived from the .mks stem by stripping suffixes (e.g. `.forced`, `.jpn`, `.01`), so e.g. `MOVIE.jpn.mks` or `MOVIE.01.jpn.forced.mks` will match `MOVIE.mkv`. If the companion’s video is 1440×1080, anamorphic is applied (1440x1080); if 1280×720, output is 1280×720 (720p); if 720×480, output is 720×480 (ntsc); otherwise 1920x1080.
+- `--arib-params <options>`: libaribcaption options (key=value,key=value)
+  - Excluded: `sub_type` (fixed to `bitmap` for BDN/PNG output), `ass_single_rect` (ASS-only option; not used for bitmap), `canvas_size` (set automatically from output resolution)
+  - Defaults: `caption_encoding=0`, `font` (see below), `force_outline_text=0`, `ignore_background=0`, `ignore_ruby=0`, `outline_width=0.0`, `replace_drcs=0`, `replace_msz_ascii=0`, `replace_msz_japanese=0`, `replace_msz_glyph=0`. Font: on macOS `"Hiragino Maru Gothic ProN, Rounded M+ 1m for ARIB"`, on Windows `"Rounded M+ 1m for ARIB"`.
+- `--output, -o <directory>`: Output directory (default: `<input basename>_bdnxml` next to the input file)
+- `--debug, -d`: Enable debug logging
 - `--help, -h`: Show help
 - `--version, -v`: Show version
 
-### VideoFormat auto-detection
+### Output resolution
 
-The BDN XML `VideoFormat` attribute is determined as follows:
+- **1280×720** → **1280×720** (720p). **720×480** → **720×480** (ntsc). **1440×1080** with `--anamorphic` → 1440×1080. Otherwise **1920×1080**. For .mks input, a companion .mkv (same or parent directory) is used to detect resolution if present.
 
-- Based on **canvas height** and **interlaced flag** from the input .ts
-- 1080 lines: interlaced → `1080i`, progressive → `1080p`
-- 720 lines: always `720p` (no 720i in BDMV spec)
-- 480 lines: interlaced → `480i`, progressive → `480p`
+### VideoFormat
+
+The BDN XML `VideoFormat` attribute is `1080p` (1920×1080), `720p` (1280×720), `1440x1080` (anamorphic), or `ntsc` (720×480).
 
 ### Examples
 
 ```bash
-# Basic usage
+# Basic usage (output 1920x1080)
 arib2bdnxml input.ts
 
-# Specify resolution
-arib2bdnxml --resolution 1920x1080 input.ts
+# Anamorphic for 1440x1080 source (1440x1080)
+arib2bdnxml --anamorphic input.ts
 
 # Specify output directory
 arib2bdnxml --output ./output input.ts
 
 # libaribcaption options
-arib2bdnxml --libaribcaption-opt font="Hiragino Maru Gothic ProN, Rounded M+ 1m for ARIB" input.ts
-
-# For video cut from 00:05:00.500 to 00:55:00.500
-arib2bdnxml --ss 00:05:00.500 --to 00:55:00.500 input.ts
-
-# Time in seconds (300.5 to 3300.5)
-arib2bdnxml --ss 300.5 --to 3300.5 input.ts
+arib2bdnxml --arib-params font="Hiragino Maru Gothic ProN, Rounded M+ 1m for ARIB" input.ts
 
 # Combined options
-arib2bdnxml --resolution 1440x1080 --ss 00:00:09.871 --to 00:20:09.870 \
-  --libaribcaption-opt font="Hiragino Maru Gothic ProN, Rounded M+ 1m for ARIB" \
+arib2bdnxml -a --arib-params font="Hiragino Maru Gothic ProN, Rounded M+ 1m for ARIB" \
   --output ./output input.ts
 ```
 
 ### BDN XML + PNG to .sup
 
-Use [SUPer](https://github.com/quietvoid/super) to convert the generated BDN XML + PNG into Blu-ray .sup (PGS) subtitle files.
+The generated BDN XML + PNG are compatible with [BDSup2Sub](https://github.com/mjuhasz/BDSup2Sub). Use BDSup2Sub to convert them to Blu-ray .sup (PGS) subtitle files. Run BDSup2Sub from the directory that contains the XML and PNG files:
+
+```bash
+java -jar BDSup2Sub.jar -o output.sup basename.xml
+```
+
+See [BDSup2Sub Command-line Interface](https://github.com/mjuhasz/BDSup2Sub/wiki/Command-line-Interface) for options (e.g. `-r` for resolution, `-T` for frame rate).
 
 ## License
 
@@ -146,6 +132,7 @@ See the LICENSE file.
 
 ## References
 
+- [BDSup2Sub](https://github.com/mjuhasz/BDSup2Sub) — BDN XML + PNG to .sup
 - [ass2bdnxml](https://github.com/cubicibo/ass2bdnxml) — original: [mia-0/ass2bdnxml](https://github.com/mia-0/ass2bdnxml)
 - [libaribcaption](https://github.com/xqq/libaribcaption)
 - [FFmpeg](https://ffmpeg.org/)

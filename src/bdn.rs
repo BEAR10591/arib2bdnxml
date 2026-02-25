@@ -1,12 +1,9 @@
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
-/// BDN metadata (video dimensions, frame rate, format).
+/// BDN metadata (frame rate, format). Written to BDN XML Description/Format.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // video_width/video_height kept for BDN spec / future use
 pub struct BdnInfo {
-    pub video_width: i32,
-    pub video_height: i32,
     pub fps: f64,
     pub video_format: String,
 }
@@ -55,21 +52,21 @@ pub fn adjust_timestamp(timestamp: f64, start_time: f64) -> f64 {
     timestamp - start_time
 }
 
-/// Determines VideoFormat string from canvas height and interlaced flag.
-pub fn determine_video_format(canvas_height: i32, is_interlaced: bool) -> &'static str {
-    match canvas_height {
-        1080 => if is_interlaced { "1080i" } else { "1080p" },
-        720 => "720p",
-        480 => if is_interlaced { "480i" } else { "480p" },
-        _ => "1080p",
-    }
-}
-
 fn format_tc(hours: i32, minutes: i32, seconds: i32, frames: i32) -> String {
     format!(
         "{:02}:{:02}:{:02}:{:02}",
         hours, minutes, seconds, frames
     )
+}
+
+/// Format FPS for BDN XML. Output "29.97" for 29.970, "24" for 24.000; other rates keep 3 decimals.
+fn format_fps(fps: f64) -> String {
+    let s = format!("{:.3}", fps);
+    match s.as_str() {
+        "29.970" => "29.97".to_string(),
+        "24.000" => "24".to_string(),
+        _ => s,
+    }
 }
 
 fn xml_escape(s: &str) -> String {
@@ -87,6 +84,7 @@ fn xml_escape(s: &str) -> String {
     out
 }
 
+/// BDN XML format conforms to [BDSup2Sub Supported Formats](https://github.com/mjuhasz/BDSup2Sub/wiki/Supported-Formats#sony-bdn-xml-format).
 /// Writes BDN 0.93 XML to a file.
 pub struct BdnXmlGenerator {
     info: BdnInfo,
@@ -112,15 +110,28 @@ impl BdnXmlGenerator {
         writeln!(w, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>")?;
         writeln!(
             w,
-            "<BDN Version=\"0.93\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:noNamespaceSchemaLocation=\"BDN.xsd\">"
+            "<BDN Version=\"0.93\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:noNamespaceSchemaLocation=\"BD-03-006-0093b BDN File Format.xsd\">"
         )?;
         writeln!(w, "  <Description>")?;
-        writeln!(w, "    <Name Title=\"BDN Subtitle\"/>")?;
+        writeln!(w, "    <Name Title=\"BDN Subtitle\" Content=\"\"/>")?;
         writeln!(w, "    <Language Code=\"und\"/>")?;
         writeln!(
             w,
-            "    <Format VideoFormat=\"{}\" FrameRate=\"{:.3}\" DropFrame=\"False\"/>",
-            self.info.video_format, self.info.fps
+            "    <Format VideoFormat=\"{}\" FrameRate=\"{}\" DropFrame=\"False\"/>",
+            self.info.video_format,
+            format_fps(self.info.fps)
+        )?;
+        let (first_tc, last_tc) = if let (Some(first), Some(last)) = (self.events.first(), self.events.last()) {
+            (first.in_tc.as_str(), last.out_tc.as_str())
+        } else {
+            ("00:00:00:00", "00:00:00:00")
+        };
+        writeln!(
+            w,
+            "    <Events Type=\"Graphic\" FirstEventInTC=\"{}\" LastEventOutTC=\"{}\" NumberofEvents=\"{}\"/>",
+            xml_escape(first_tc),
+            xml_escape(last_tc),
+            self.events.len()
         )?;
         writeln!(w, "  </Description>")?;
         writeln!(w, "  <Events>")?;
@@ -159,14 +170,6 @@ mod tests {
     fn test_time_to_tc() {
         assert_eq!(time_to_tc(0.0, 29.97), "00:00:00:00");
         assert_eq!(time_to_tc(1.0, 30.0), "00:00:01:00");
-    }
-
-    #[test]
-    fn test_determine_video_format() {
-        assert_eq!(determine_video_format(1080, false), "1080p");
-        assert_eq!(determine_video_format(1080, true), "1080i");
-        assert_eq!(determine_video_format(720, true), "720p");
-        assert_eq!(determine_video_format(480, true), "480i");
     }
 
     #[test]

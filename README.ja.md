@@ -2,17 +2,17 @@
 
 [English](README.md)
 
-.ts/.m2ts ファイル内の ARIB 字幕を、libaribcaption（FFmpeg 経由）を使用してビットマップにデコードし、Blu-ray 用 PGS 字幕作成に必要な BDN XML + PNG を生成するツールです。
+.ts/.m2ts/.mkv/.mks ファイル内の ARIB 字幕を、libaribcaption（FFmpeg 経由）を使用してビットマップにデコードし、Blu-ray 用 PGS 字幕作成に必要な BDN XML + PNG を生成するツールです。
 
 **対応OS**: macOS / Windows のみ
 
 ## 機能
 
-- .ts/.m2ts ファイルから ARIB 字幕を抽出
+- .ts/.m2ts/.mkv/.mks ファイルから ARIB 字幕を抽出
 - libaribcaption（FFmpeg 経由）を使用してビットマップにデコード
 - BDN XML + PNG を生成
-- ffmpeg でカットした動画用のタイムスタンプ調整（`--ss`, `--to` オプション）
-- VideoFormat の自動判定（1080p, 1080i, 720p, 480p, 480i）
+- デフォルト出力 1920×1080。1280×720 → 1280×720（720p）。720×480 → 720×480（ntsc）。1440×1080 のみオプションでアナモルフィック 1440×1080
+- VideoFormat 1080p、720p、1440x1080、ntsc
 
 ## 要件
 
@@ -75,70 +75,56 @@ FFmpeg のリンクが必要なため、上記の FFmpeg を用意した環境�
 arib2bdnxml [オプション] <入力ファイル>
 ```
 
+**入力形式**: .ts, .m2ts, .mkv, .mks。ARIB 字幕ストリームを含むファイルを指定してください。
+
 ### オプション
 
-- `--resolution, -r <解像度>`: 出力解像度（1920x1080, 1440x1080, 1280x720, 720x480）
-  - 指定がない場合は動画解像度に基づいて自動決定されます
-  - 動画解像度が 1920x1080 または 1440x1080 の場合 → 1920x1080
-  - 動画解像度が 1280x720 の場合 → 1280x720
-  - 動画解像度が 720x480 の場合 → 720x480
-  - それ以外の解像度の場合はエラーで中断されます
-- `--ss <時刻>`: タイムスタンプ調整用の開始時刻（秒数または HH:MM:SS.mmm 形式）
-  - ffmpeg の `-ss` オプションでカットした動画用
-  - 指定した時刻より前の字幕をスキップし、タイムコードを 00:00:00.000 から開始するように調整
-  - ミリ秒まで対応（例: `--ss 300.5` または `--ss 00:05:00.500`）
-- `--to <時刻>`: タイムスタンプ調整用の終了時刻（秒数または HH:MM:SS.mmm 形式）
-  - ffmpeg の `-to` オプションでカットした動画用
-  - 指定した時刻以降の字幕をスキップし、終了時刻を制限
-  - ミリ秒まで対応（例: `--to 3300.5` または `--to 00:55:00.500`）
-- `--libaribcaption-opt <オプション>`: libaribcaption オプション（key=value,key=value 形式）
-  - 除外: `sub_type`, `ass_single_rect`, `canvas_size`
-  - `canvas_size` は `--resolution` オプションで指定してください
-  - デフォルト値: `outline_width=0.0`, `replace_msz_ascii=0`, `replace_msz_japanese=0`, `replace_drcs=0`
-- `--output <ディレクトリ>`: 出力ディレクトリ（省略時は入力ファイルと同じディレクトリに`<動画ファイル名>_bdnxml`を作成）
-- `--debug`: デバッグログを出力
+- `--anamorphic, -a`: ソースが 1440x1080 のときのみアナモルフィック（1440x1080）。1280×720 → 1280×720（720p）、720×480 → 720×480（ntsc）、それ以外は 1920x1080。.mks の場合はコンパニオン .mkv を探し、1440×1080 なら 1440x1080、1280×720 なら 1280×720（720p）、720×480 なら 720×480（ntsc）、それ以外は 1920x1080。
+- `--arib-params <オプション>`: libaribcaption オプション（key=value,key=value 形式）
+  - 除外: `sub_type`（BDN/PNG 出力のため常に `bitmap`）、`ass_single_rect`（ASS 用オプションのためビットマップ出力では未使用）、`canvas_size`（出力解像度から自動設定）
+  - デフォルト値: `caption_encoding=0`, `font`（後述）, `force_outline_text=0`, `ignore_background=0`, `ignore_ruby=0`, `outline_width=0.0`, `replace_drcs=0`, `replace_msz_ascii=0`, `replace_msz_japanese=0`, `replace_msz_glyph=0`。font は macOS では `"Hiragino Maru Gothic ProN, Rounded M+ 1m for ARIB"`、Windows では `"Rounded M+ 1m for ARIB"`。
+- `--output, -o <ディレクトリ>`: 出力ディレクトリ（省略時は入力ファイルと同じディレクトリに`<動画ファイル名>_bdnxml`を作成）
+- `--debug, -d`: デバッグログを出力
 - `--help, -h`: ヘルプを表示
 - `--version, -v`: バージョン情報を表示
 
-### VideoFormat の自動判定
+### 出力解像度
 
-生成される BDN XML の `VideoFormat` 属性は、以下のルールで自動判定されます：
+- **1280×720** → **1280×720**（720p）。**720×480** → **720×480**（ntsc）。**1440×1080** で `--anamorphic` 指定時 → 1440×1080。それ以外は **1920×1080**。.mks の場合はコンパニオン .mkv で解像度を判定。
 
-- **canvas_size の縦解像度**と**入力.tsファイルのインターレース判定**に基づいて決定
-- 1080 ライン: インターレース → `1080i`、プログレッシブ → `1080p`
-- 720 ライン: 常に `720p`（BDMV 仕様上 720i は存在しない）
-- 480 ライン: インターレース → `480i`、プログレッシブ → `480p`
+### VideoFormat
+
+BDN XML の `VideoFormat` 属性は、1920×1080 のとき `1080p`、1280×720 のとき `720p`、アナモルフィック 1440×1080 のとき `1440x1080`、720×480 のとき `ntsc` です。
 
 ### 例
 
 ```bash
-# 基本的な使用
+# 基本的な使用（出力 1920x1080）
 arib2bdnxml input.ts
 
-# 解像度を指定
-arib2bdnxml --resolution 1920x1080 input.ts
+# 1440x1080 ソースでアナモルフィック（1440x1080）
+arib2bdnxml --anamorphic input.ts
 
 # 出力ディレクトリを指定
 arib2bdnxml --output ./output input.ts
 
 # libaribcaption オプションを指定
-arib2bdnxml --libaribcaption-opt font="Hiragino Maru Gothic ProN, Rounded M+ 1m for ARIB" input.ts
-
-# ffmpeg でカットした動画用（00:05:00.500 から 00:55:00.500 まで）
-arib2bdnxml --ss 00:05:00.500 --to 00:55:00.500 input.ts
-
-# 秒数で指定（300.5 秒から 3300.5 秒まで）
-arib2bdnxml --ss 300.5 --to 3300.5 input.ts
+arib2bdnxml --arib-params font="Hiragino Maru Gothic ProN, Rounded M+ 1m for ARIB" input.ts
 
 # 複数のオプションを組み合わせ
-arib2bdnxml --resolution 1440x1080 --ss 00:00:09.871 --to 00:20:09.870 \
-  --libaribcaption-opt font="Hiragino Maru Gothic ProN, Rounded M+ 1m for ARIB" \
+arib2bdnxml -a --arib-params font="Hiragino Maru Gothic ProN, Rounded M+ 1m for ARIB" \
   --output ./output input.ts
 ```
 
 ### BDN XML + PNG から .sup ファイルへの変換
 
-生成された BDN XML + PNG ファイルは、[SUPer](https://github.com/quietvoid/super) を使用して Blu-ray 用の .sup ファイル（PGS 字幕）に変換できます。
+生成された BDN XML + PNG は [BDSup2Sub](https://github.com/mjuhasz/BDSup2Sub) と互換です。BDSup2Sub で Blu-ray 用 .sup（PGS 字幕）に変換できます。XML と PNG があるディレクトリで次を実行してください。
+
+```bash
+java -jar BDSup2Sub.jar -o output.sup basename.xml
+```
+
+オプション（解像度 `-r`、フレームレート `-T` など）は [BDSup2Sub のコマンドライン](https://github.com/mjuhasz/BDSup2Sub/wiki/Command-line-Interface) を参照してください。
 
 ## ライセンス
 
@@ -146,6 +132,7 @@ arib2bdnxml --resolution 1440x1080 --ss 00:00:09.871 --to 00:20:09.870 \
 
 ## 参考
 
+- [BDSup2Sub](https://github.com/mjuhasz/BDSup2Sub) — BDN XML + PNG から .sup への変換
 - [ass2bdnxml](https://github.com/cubicibo/ass2bdnxml)
   - オリジナル: [mia-0/ass2bdnxml](https://github.com/mia-0/ass2bdnxml)
 - [libaribcaption](https://github.com/xqq/libaribcaption)

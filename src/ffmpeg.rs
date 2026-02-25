@@ -12,14 +12,13 @@ use crate::ffmpeg_sys::*;
 const AV_NOPTS_VALUE: i64 = i64::MIN;
 const INVALID_DISPLAY_TIME: u32 = 0xFFFF_FFFF;
 
-/// Video stream info (resolution, FPS, interlaced, etc.).
+/// Video stream info (resolution, FPS, start time).
 #[derive(Debug, Clone)]
 pub struct VideoInfo {
     pub width: i32,
     pub height: i32,
     pub fps: f64,
     pub start_time: f64,
-    pub is_interlaced: bool,
 }
 
 /// A single subtitle frame (bitmap or clear command).
@@ -75,6 +74,71 @@ fn codec_name_has_arib(name: *const std::ffi::c_char) -> bool {
     s.contains("arib") || s.contains("libaribcaption")
 }
 
+/// Probes a file for video stream resolution. Returns (width, height) or error if no video stream.
+/// Used for .mks companion .mkv resolution when --anamorphic is set.
+pub fn probe_video_resolution(filename: &str) -> anyhow::Result<(i32, i32)> {
+    let c_path = CString::new(filename).map_err(|e| anyhow::anyhow!("path: {}", e))?;
+    unsafe {
+        let mut format_opts: *mut AVDictionary = ptr::null_mut();
+        let k1 = CString::new("analyzeduration").unwrap();
+        let v1 = CString::new("5000000").unwrap();
+        av_dict_set(&mut format_opts, k1.as_ptr(), v1.as_ptr(), 0);
+        let k2 = CString::new("probesize").unwrap();
+        let v2 = CString::new("5000000").unwrap();
+        av_dict_set(&mut format_opts, k2.as_ptr(), v2.as_ptr(), 0);
+
+        let mut ctx: *mut AVFormatContext = ptr::null_mut();
+        let ret = avformat_open_input(
+            &mut ctx,
+            c_path.as_ptr(),
+            ptr::null(),
+            &mut format_opts,
+        );
+        if !format_opts.is_null() {
+            av_dict_free(&mut format_opts);
+        }
+        if ret < 0 {
+            anyhow::bail!(
+                "Failed to open file: {} ({})",
+                filename,
+                ffmpeg_strerror(ret)
+            );
+        }
+
+        let ret = avformat_find_stream_info(ctx, ptr::null_mut());
+        if ret < 0 {
+            avformat_close_input(&mut ctx);
+            anyhow::bail!("Failed to get stream info: {}", ffmpeg_strerror(ret));
+        }
+
+        let nb_streams = (*ctx).nb_streams;
+        let mut width = 0i32;
+        let mut height = 0i32;
+        for i in 0..nb_streams {
+            let stream = *(*ctx).streams.add(i as usize);
+            if stream.is_null() {
+                continue;
+            }
+            let codecpar = (*stream).codecpar;
+            if codecpar.is_null() {
+                continue;
+            }
+            if (*codecpar).codec_type == AVMediaType_AVMEDIA_TYPE_VIDEO {
+                width = (*codecpar).width;
+                height = (*codecpar).height;
+                break;
+            }
+        }
+
+        avformat_close_input(&mut ctx);
+
+        if width <= 0 || height <= 0 {
+            anyhow::bail!("No video stream found in {}", filename);
+        }
+        Ok((width, height))
+    }
+}
+
 impl FfmpegWrapper {
     pub fn new() -> Self {
         unsafe {
@@ -92,7 +156,6 @@ impl FfmpegWrapper {
                 height: 0,
                 fps: 0.0,
                 start_time: 0.0,
-                is_interlaced: false,
             },
         }
     }
@@ -108,12 +171,7 @@ impl FfmpegWrapper {
         }
     }
 
-    pub fn open_file(
-        &mut self,
-        filename: &str,
-        _ss: Option<f64>,
-        _to: Option<f64>,
-    ) -> anyhow::Result<()> {
+    pub fn open_file(&mut self, filename: &str) -> anyhow::Result<()> {
         let c_path = CString::new(filename).map_err(|e| anyhow::anyhow!("path: {}", e))?;
 
         let mut format_opts: *mut AVDictionary = ptr::null_mut();
@@ -212,9 +270,6 @@ impl FfmpegWrapper {
                 } else if r.num > 0 && r.den > 0 {
                     self.video_info.fps = (r.num as f64) / (r.den as f64);
                 }
-                let order = (*par).field_order;
-                self.video_info.is_interlaced = order != AVFieldOrder_AV_FIELD_PROGRESSIVE
-                    && order != AVFieldOrder_AV_FIELD_UNKNOWN;
             }
 
             let start = (*self.format_ctx).start_time;
