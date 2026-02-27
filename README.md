@@ -38,13 +38,9 @@ See: [bear10591/homebrew-tap](https://github.com/BEAR10591/homebrew-tap)
 
 ### Windows (Gyan.dev FFmpeg shared build)
 
-Use a **shared** build (needed for linking). Either:
+Use a **shared** build (needed for linking): download [ffmpeg-release-full-shared.7z](https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z) from [gyan.dev FFmpeg Builds](https://www.gyan.dev/ffmpeg/builds/) and extract it.
 
-- Download [ffmpeg-release-full-shared.7z](https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z) from [gyan.dev FFmpeg Builds](https://www.gyan.dev/ffmpeg/builds/) and extract it, or  
-- Install via winget:  
-  `winget install -e --id Gyan.FFmpeg.Shared`
-
-If `ffmpeg` is on your PATH after installation, run `cargo build --release` with no extra setup. Otherwise set `FFMPEG_DIR` to the installation root (the folder that contains `include` and `lib`):
+If `ffmpeg` is on your PATH after extraction, run `cargo build --release` with no extra setup. Otherwise set `FFMPEG_DIR` to the installation root (the folder that contains `include` and `lib`):
 
 ```powershell
 $env:FFMPEG_DIR = "C:\path\to\ffmpeg"   # only if ffmpeg is not on PATH

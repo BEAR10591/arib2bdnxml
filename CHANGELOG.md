@@ -1,5 +1,12 @@
 # 変更履歴
 
+## [0.2.1] - 2026-02-25
+
+### 変更
+- ビルド時の FFmpeg チェックを `ffmpeg -version` と `ffmpeg -decoders` に統一
+- CI で FFmpeg をインストール（macOS: Homebrew tap、Windows: Gyan.dev 7z）
+- README: Windows の winget 案内を削除（開発用ヘッダが含まれないため）
+
 ## [0.1.1] - 2025-12-30
 
 ### 追加

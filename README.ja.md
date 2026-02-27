@@ -38,13 +38,9 @@ brew install bear10591/tap/ffmpeg
 
 ### Windows（Gyan.dev の FFmpeg 共有ビルド）
 
-リンク用に **shared** ビルドを用意してください。次のいずれかです。
+リンク用に **shared** ビルドを用意してください。[gyan.dev FFmpeg Builds](https://www.gyan.dev/ffmpeg/builds/) から [ffmpeg-release-full-shared.7z](https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z) をダウンロードして展開してください。
 
-- [gyan.dev FFmpeg Builds](https://www.gyan.dev/ffmpeg/builds/) から [ffmpeg-release-full-shared.7z](https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z) をダウンロードして展開する  
-- winget でインストールする:  
-  `winget install -e --id Gyan.FFmpeg.Shared`
-
-インストール後に `ffmpeg` が PATH に通っていれば、そのまま `cargo build --release` でビルドできます。PATH に無い場合は、インストール先のルート（`include` と `lib` がその直下にあるフォルダ）を `FFMPEG_DIR` に設定してください。
+展開後に `ffmpeg` が PATH に通っていれば、そのまま `cargo build --release` でビルドできます。PATH に無い場合は、インストール先のルート（`include` と `lib` がその直下にあるフォルダ）を `FFMPEG_DIR` に設定してください。
 
 ```powershell
 $env:FFMPEG_DIR = "C:\path\to\ffmpeg"   # PATH に無い場合のみ
