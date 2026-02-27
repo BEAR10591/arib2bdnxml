@@ -84,6 +84,7 @@ jobs:
           $binDir = Split-Path $exe
           $root = Split-Path $binDir
           echo "FFMPEG_DIR=$root" >> $env:GITHUB_ENV
+          echo "$binDir" >> $env:GITHUB_PATH
 
       - name: Build (release)
         run: cargo build --release
@@ -128,6 +129,7 @@ jobs:
           $binDir = Split-Path $exe
           $root = Split-Path $binDir
           echo "FFMPEG_DIR=$root" >> $env:GITHUB_ENV
+          echo "$binDir" >> $env:GITHUB_PATH
 
       - name: Build (release)
         run: cargo build --release
