@@ -165,35 +165,61 @@ fn check_ffmpeg_version(ffmpeg_bin: &Path) {
         .arg("-version")
         .output()
         .unwrap_or_else(|e| panic!("Failed to run {}: {}", ffmpeg_bin.display(), e));
-    // ffmpeg often prints version to stderr on Windows
-    let line_stdout = std::str::from_utf8(&out.stdout)
-        .ok()
-        .and_then(|s| s.lines().next())
-        .unwrap_or("");
-    let line_stderr = std::str::from_utf8(&out.stderr)
-        .ok()
-        .and_then(|s| s.lines().next())
-        .unwrap_or("");
-    let line = if !line_stdout.is_empty() {
-        line_stdout
-    } else {
-        line_stderr
-    };
-    // "ffmpeg version 8.0" or "ffmpeg version 8.0.1" or "FFmpeg version ..."
-    let version = line
-        .strip_prefix("ffmpeg version ")
-        .or_else(|| line.strip_prefix("FFmpeg version "))
-        .or_else(|| line.split_whitespace().nth(2))
-        .unwrap_or("");
-    let mut parts = version.split('.');
-    let major: u32 = parts
-        .next()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    // Use lossy UTF-8; Windows may output in system code page
+    let out_str = String::from_utf8_lossy(&out.stdout);
+    let err_str = String::from_utf8_lossy(&out.stderr);
+    let combined = format!("{}\n{}", out_str, err_str);
+    // "ffmpeg version 8.0" or "FFmpeg version 8.0.1" or "version 8.0"
+    let mut major: u32 = 0;
+    for line in combined.lines() {
+        let line = line.trim();
+        if let Some(v) = line
+            .strip_prefix("ffmpeg version ")
+            .or_else(|| line.strip_prefix("FFmpeg version "))
+        {
+            if let Some(m) = v.split('.').next().and_then(|s| s.parse::<u32>().ok()) {
+                major = m;
+                break;
+            }
+        }
+        if major == 0 {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 3 && parts[1].eq_ignore_ascii_case("version") {
+                if let Some(m) = parts[2].split('.').next().and_then(|s| s.parse::<u32>().ok()) {
+                    major = m;
+                    break;
+                }
+            }
+        }
+    }
+    // Fallback: look for "8." anywhere in output (e.g. unusual format or encoding on Windows)
+    if major == 0 {
+        for line in combined.lines() {
+            if let Some(pos) = line.find("8.") {
+                let tail = &line[pos..];
+                if let Some(first) = tail.split(|c: char| !c.is_ascii_digit() && c != '.').next() {
+                    if let Some(m) = first.split('.').next().and_then(|s| s.parse::<u32>().ok()) {
+                        if m >= 8 {
+                            major = m;
+                            break;
+                        }
+                    }
+                }
+            }
+            if major >= 8 {
+                break;
+            }
+        }
+    }
     if major < 8 {
+        let detected = combined
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .map(|l| l.trim())
+            .unwrap_or("unknown");
         panic!(
             "FFmpeg 8.0 or newer is required (detected: {}). Install FFmpeg 8.0+ with --enable-libaribcaption (see README).",
-            version
+            detected
         );
     }
 }
@@ -205,12 +231,13 @@ fn check_libaribcaption(ffmpeg_bin: &Path) {
         .args(["-hide_banner", "-decoders"])
         .output()
         .unwrap_or_else(|e| panic!("Failed to run {} -decoders: {}", ffmpeg_bin.display(), e));
-    // decoder list is often on stderr on Windows
-    let out_str = std::str::from_utf8(&out.stdout).unwrap_or("");
-    let out_str = if out_str.is_empty() {
-        std::str::from_utf8(&out.stderr).unwrap_or("")
+    // decoder list is often on stderr on Windows; use lossy UTF-8 for code page output
+    let out_str = String::from_utf8_lossy(&out.stdout);
+    let err_str = String::from_utf8_lossy(&out.stderr);
+    let out_str = if out_str.trim().is_empty() {
+        err_str.as_ref()
     } else {
-        out_str
+        out_str.as_ref()
     };
     let has_libaribcaption = out_str
         .lines()
