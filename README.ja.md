@@ -17,41 +17,39 @@
 ## 要件
 
 - Rust（edition 2021）
-- FFmpeg（libavcodec, libavformat, libavutil）で **libaribcaption が有効** なビルド
+- FFmpeg **8.0 以上**（libavcodec, libavformat, libavutil）で **--enable-libaribcaption** 付きのビルド
 - ビルド時: clang（bindgen 用）、pkg-config
 
-通常の FFmpeg には **libaribcaption** が有効になっていないため、以下のいずれかで **libaribcaption 有効の FFmpeg** を用意してください。
+ビルド時に、FFmpeg が 8.0 以上であることと ARIB キャプションデコーダ（libaribcaption）が利用可能であることを確認します。通常の FFmpeg には **libaribcaption** が有効になっていないため、以下のいずれかで **libaribcaption 有効の FFmpeg 8.0 以上**を用意してください。
 
 ## FFmpeg の用意
 
-### macOS（想定: Homebrew tap の ffmpeg-ursus）
+FFmpeg は次の順で検出されます: **FFMPEG_DIR**（設定している場合）、**pkg-config**、または **PATH** 上の **ffmpeg**。PATH に ffmpeg がある場合（例: Windows で winget インストール後）は、`FFMPEG_DIR` を指定せずにビルドできます。
+
+### macOS（推奨: Homebrew tap の bear10591/tap/ffmpeg）
 
 ```bash
-brew install bear10591/tap/ffmpeg-ursus
+brew install bear10591/tap/ffmpeg
 ```
 
-ffmpeg-ursus は **keg-only** のため、標準の PATH や pkg-config からは参照されません。ビルド時に `FFMPEG_DIR` を指定してください。
-
-```bash
-export FFMPEG_DIR="$(brew --prefix ffmpeg-ursus)"
-cargo build --release
-```
+続けて `cargo build --release` を実行してください。
 
 参考: [bear10591/homebrew-tap](https://github.com/BEAR10591/homebrew-tap)
 
-### Windows（想定: Gyan.dev の FFmpeg フルビルド）
+### Windows（Gyan.dev の FFmpeg 共有ビルド）
 
-[gyan.dev FFmpeg Builds](https://www.gyan.dev/ffmpeg/builds/) から **full build**（開発用の include/lib を含むビルド）をダウンロードし、展開してください。
+リンク用に **shared** ビルドを用意してください。次のいずれかです。
 
-- 例: `ffmpeg-release-full.7z` を展開し、`ffmpeg-x.x.x-full_build` のようなフォルダを得る。
-- ビルド時に、そのルートを `FFMPEG_DIR` に設定します（`include` と `lib` がその直下にあること）。
+- [gyan.dev FFmpeg Builds](https://www.gyan.dev/ffmpeg/builds/) から [ffmpeg-release-full-shared.7z](https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z) をダウンロードして展開する  
+- winget でインストールする:  
+  `winget install -e --id Gyan.FFmpeg.Shared`
+
+インストール後に `ffmpeg` が PATH に通っていれば、そのまま `cargo build --release` でビルドできます。PATH に無い場合は、インストール先のルート（`include` と `lib` がその直下にあるフォルダ）を `FFMPEG_DIR` に設定してください。
 
 ```powershell
-$env:FFMPEG_DIR = "C:\path\to\ffmpeg-x.x.x-full_build"
+$env:FFMPEG_DIR = "C:\path\to\ffmpeg"   # PATH に無い場合のみ
 cargo build --release
 ```
-
-`bin` のみのビルドでは開発用ファイルが含まれないため、**full** ビルドが必要です。
 
 ## ビルド
 
@@ -60,6 +58,18 @@ cargo build --release
 ```
 
 実行ファイルは `target/release/arib2bdnxml`（macOS）または `target/release/arib2bdnxml.exe`（Windows）に生成されます。
+
+### リリース用パッケージ（FFmpeg の dylib/DLL 同梱）
+
+ユーザーが FFmpeg を別途インストールしなくてよいよう、必要な FFmpeg ライブラリを同梱したリリース用の成果物を作るには:
+
+```bash
+export FFMPEG_DIR="$(brew --prefix ffmpeg)"              # macOS 用 FFmpeg（ビルド＋dylib コピー用）
+export FFMPEG_DIR_WIN="/path/to/ffmpeg-8.0.1-full_build-shared"   # Windows 用 FFmpeg 共有ビルド（exe＋DLL 用）
+./scripts/package-release.sh
+```
+
+`dist/arib2bdnxml-macos-<arch>/`（実行ファイル＋`.dylib`）と、macOS 上で実行した場合は `dist/arib2bdnxml-windows-x86_64/`（`.exe`＋`.dll`）ができます。各フォルダを ZIP して配布してください。macOS で FFmpeg が他のライブラリに依存している場合は、lib が一箇所にまとまった FFmpeg を使うか、同梱後もシステムの dylib を参照します。
 
 ## テスト
 
@@ -79,18 +89,18 @@ arib2bdnxml [オプション] <入力ファイル>
 
 ### オプション
 
-- `--anamorphic, -a`: ソースが 1440x1080 のときのみアナモルフィック（1440x1080）。1280×720 → 1280×720（720p）、720×480 → 720×480（ntsc）、それ以外は 1920x1080。.mks の場合はコンパニオン .mkv を探し、1440×1080 なら 1440x1080、1280×720 なら 1280×720（720p）、720×480 なら 720×480（ntsc）、それ以外は 1920x1080。
+- `--anamorphic, -a`: ソースが 1440×1080 のときのみアナモルフィック出力。.mks の場合は同じ／親ディレクトリのコンパニオン .mkv から解像度を判定。詳細は「出力解像度」を参照。
 - `--arib-params <オプション>`: libaribcaption オプション（key=value,key=value 形式）
   - 除外: `sub_type`（BDN/PNG 出力のため常に `bitmap`）、`ass_single_rect`（ASS 用オプションのためビットマップ出力では未使用）、`canvas_size`（出力解像度から自動設定）
   - デフォルト値: `caption_encoding=0`, `font`（後述）, `force_outline_text=0`, `ignore_background=0`, `ignore_ruby=0`, `outline_width=0.0`, `replace_drcs=0`, `replace_msz_ascii=0`, `replace_msz_japanese=0`, `replace_msz_glyph=0`。font は macOS では `"Hiragino Maru Gothic ProN, Rounded M+ 1m for ARIB"`、Windows では `"Rounded M+ 1m for ARIB"`。
-- `--output, -o <ディレクトリ>`: 出力ディレクトリ（省略時は入力ファイルと同じディレクトリに`<動画ファイル名>_bdnxml`を作成）
+- `--output, -o <ディレクトリ>`: 出力ディレクトリ（省略時は入力ファイルと同じディレクトリに `<入力ベース名>_bdnxml` を作成）
 - `--debug, -d`: デバッグログを出力
 - `--help, -h`: ヘルプを表示
 - `--version, -v`: バージョン情報を表示
 
 ### 出力解像度
 
-- **1280×720** → **1280×720**（720p）。**720×480** → **720×480**（ntsc）。**1440×1080** で `--anamorphic` 指定時 → 1440×1080。それ以外は **1920×1080**。.mks の場合はコンパニオン .mkv で解像度を判定。
+- **1280×720** → 1280×720（720p）。**720×480** → 720×480（ntsc）。**1440×1080** で `--anamorphic` 指定時 → 1440×1080。上記以外は **1920×1080**。.mks 入力時は、同じディレクトリまたは親ディレクトリのコンパニオン .mkv（.mks のベース名から `.forced` / `.jpn` / トラック番号などを除いた名前の .mkv）で解像度を判定。
 
 ### VideoFormat
 
@@ -121,7 +131,7 @@ arib2bdnxml -a --arib-params font="Hiragino Maru Gothic ProN, Rounded M+ 1m for 
 生成された BDN XML + PNG は [BDSup2Sub](https://github.com/mjuhasz/BDSup2Sub) と互換です。BDSup2Sub で Blu-ray 用 .sup（PGS 字幕）に変換できます。XML と PNG があるディレクトリで次を実行してください。
 
 ```bash
-java -jar BDSup2Sub.jar -o output.sup basename.xml
+java -jar BDSup2Sub.jar -i -T keep -o output.sup basename.xml
 ```
 
 オプション（解像度 `-r`、フレームレート `-T` など）は [BDSup2Sub のコマンドライン](https://github.com/mjuhasz/BDSup2Sub/wiki/Command-line-Interface) を参照してください。
@@ -137,5 +147,5 @@ java -jar BDSup2Sub.jar -o output.sup basename.xml
   - オリジナル: [mia-0/ass2bdnxml](https://github.com/mia-0/ass2bdnxml)
 - [libaribcaption](https://github.com/xqq/libaribcaption)
 - [FFmpeg](https://ffmpeg.org/)
-- [gyan.dev FFmpeg Builds](https://www.gyan.dev/ffmpeg/builds/) (Windows: フルビルド推奨)
-- [bear10591/homebrew-tap](https://github.com/BEAR10591/homebrew-tap) (macOS: ffmpeg-ursus)
+- [gyan.dev FFmpeg Builds](https://www.gyan.dev/ffmpeg/builds/) (Windows: shared ビルド推奨)
+- [bear10591/homebrew-tap](https://github.com/BEAR10591/homebrew-tap) (macOS: bear10591/tap/ffmpeg)

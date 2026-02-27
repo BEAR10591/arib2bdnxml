@@ -1,0 +1,173 @@
+# Build and attach artifacts when a version tag (v*) is pushed.
+# macOS: arm64 only (macos-latest). Windows: x64 (windows-latest) + arm64 (windows-11-arm).
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}
+
+jobs:
+  build-macos:
+    runs-on: macos-latest  # Apple Silicon (arm64)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Install FFmpeg (bear10591/tap)
+        run: |
+          brew tap bear10591/tap
+          brew install bear10591/tap/ffmpeg
+
+      - name: Build (release)
+        run: cargo build --release
+        env:
+          PKG_CONFIG_PATH: "$(brew --prefix ffmpeg)/lib/pkgconfig"
+
+      - name: Package (binary + dylibs)
+        run: |
+          DIST="dist/arib2bdnxml-macos-arm64"
+          mkdir -p "$DIST"
+          cp target/release/arib2bdnxml "$DIST/"
+          FFMPEG_DIR=$(brew --prefix ffmpeg)
+          if [ -d "$FFMPEG_DIR/lib" ]; then
+            cp -n "$FFMPEG_DIR"/lib/*.dylib "$DIST/" 2>/dev/null || true
+            for dylib in "$DIST"/*.dylib; do
+              [ -f "$dylib" ] || continue
+              name=$(basename "$dylib")
+              install_name_tool -id "@executable_path/$name" "$dylib" 2>/dev/null || true
+              otool -L "$dylib" | tail -n +2 | awk '{print $1}' | while read -r dep; do
+                depname=$(basename "$dep")
+                [ -f "$DIST/$depname" ] && install_name_tool -change "$dep" "@executable_path/$depname" "$dylib" 2>/dev/null || true
+              done
+            done
+            for dylib in "$DIST"/*.dylib; do
+              [ -f "$dylib" ] || continue
+              name=$(basename "$dylib")
+              otool -L "$DIST/arib2bdnxml" | tail -n +2 | awk '{print $1}' | while read -r dep; do
+                [ "$(basename "$dep")" = "$name" ] && install_name_tool -change "$dep" "@executable_path/$name" "$DIST/arib2bdnxml" 2>/dev/null || true
+              done
+            done
+          fi
+          cd dist && zip -r "arib2bdnxml-macos-arm64.zip" "arib2bdnxml-macos-arm64" && cd ..
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arib2bdnxml-macos-arm64
+          path: dist/arib2bdnxml-macos-arm64.zip
+
+  build-windows-x64:
+    runs-on: windows-latest  # x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Install FFmpeg (Gyan.FFmpeg.Shared)
+        run: winget install -e --id Gyan.FFmpeg.Shared --accept-package-agreements --accept-source-agreements
+
+      - name: Locate FFmpeg and set FFMPEG_DIR
+        shell: pwsh
+        run: |
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+          $exe = (Get-Command ffmpeg -ErrorAction SilentlyContinue).Source
+          if (-not $exe) { throw "ffmpeg not found after winget install" }
+          $binDir = Split-Path $exe
+          $root = Split-Path $binDir
+          echo "FFMPEG_DIR=$root" >> $env:GITHUB_ENV
+
+      - name: Build (release)
+        run: cargo build --release
+
+      - name: Package (exe + DLLs)
+        shell: pwsh
+        run: |
+          $root = $env:FFMPEG_DIR
+          $distDir = "dist\arib2bdnxml-windows-x86_64"
+          New-Item -ItemType Directory -Force -Path $distDir
+          Copy-Item target\release\arib2bdnxml.exe $distDir\
+          if (Test-Path "$root\bin\*.dll") {
+            Copy-Item "$root\bin\*.dll" $distDir\
+          }
+          Compress-Archive -Path $distDir -DestinationPath "dist\arib2bdnxml-windows-x86_64.zip"
+
+      - name: Upload Windows x64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arib2bdnxml-windows-x86_64
+          path: dist/arib2bdnxml-windows-x86_64.zip
+
+  build-windows-arm64:
+    runs-on: windows-11-arm  # arm64 (public repos only)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Install FFmpeg (Gyan.FFmpeg.Shared)
+        run: winget install -e --id Gyan.FFmpeg.Shared --accept-package-agreements --accept-source-agreements
+
+      - name: Locate FFmpeg and set FFMPEG_DIR
+        shell: pwsh
+        run: |
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+          $exe = (Get-Command ffmpeg -ErrorAction SilentlyContinue).Source
+          if (-not $exe) { throw "ffmpeg not found after winget install" }
+          $binDir = Split-Path $exe
+          $root = Split-Path $binDir
+          echo "FFMPEG_DIR=$root" >> $env:GITHUB_ENV
+
+      - name: Build (release)
+        run: cargo build --release
+
+      - name: Package (exe + DLLs)
+        shell: pwsh
+        run: |
+          $root = $env:FFMPEG_DIR
+          $distDir = "dist\arib2bdnxml-windows-arm64"
+          New-Item -ItemType Directory -Force -Path $distDir
+          Copy-Item target\release\arib2bdnxml.exe $distDir\
+          if (Test-Path "$root\bin\*.dll") {
+            Copy-Item "$root\bin\*.dll" $distDir\
+          }
+          Compress-Archive -Path $distDir -DestinationPath "dist\arib2bdnxml-windows-arm64.zip"
+
+      - name: Upload Windows arm64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arib2bdnxml-windows-arm64
+          path: dist/arib2bdnxml-windows-arm64.zip
+
+  release:
+    needs: [build-macos, build-windows-x64, build-windows-arm64]
+    if: startsWith(github.ref, 'refs/tags/')  # only create release when triggered by tag push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: arib2bdnxml-*
+          merge-multiple: false
+
+      - name: Create Release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            arib2bdnxml-macos-arm64/*.zip
+            arib2bdnxml-windows-x86_64/*.zip
+            arib2bdnxml-windows-arm64/*.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+</think>
+修正中: macOS の artifact 名を固定し、release ジョブで両アーティファクトをダウンロードしてリリースに添付します。
+<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>
+StrReplace

@@ -16,7 +16,7 @@ use config::{determine_canvas_size, setup_libaribcaption_defaults};
 use ffmpeg::{probe_video_resolution, FfmpegWrapper, SubtitleFrame};
 use options::parse_libaribcaption_opts;
 
-const VERSION: &str = "0.1.1";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Derives candidate base names for companion .mkv from .mks stem.
 /// Strips from the right: .forced, .jpn/.eng, then .NN (track number).
@@ -54,6 +54,59 @@ fn companion_mkv_base_candidates(stem: &str) -> Vec<String> {
 fn strip_trailing_digits(s: &str) -> Option<&str> {
     let t = s.trim_end_matches(|c: char| c.is_ascii_digit());
     (t.len() < s.len() && t.ends_with('.')).then(|| t.strip_suffix('.').unwrap_or(t))
+}
+
+/// Resolve effective video resolution: from video_info if present, else from companion .mkv when anamorphic.
+fn resolve_effective_resolution(
+    input_file: &str,
+    video_width: i32,
+    video_height: i32,
+    anamorphic: bool,
+    debug: bool,
+) -> (i32, i32) {
+    if video_width != 0 || video_height != 0 {
+        return (video_width, video_height);
+    }
+    if !anamorphic {
+        return (0, 0);
+    }
+    let input_path = Path::new(input_file);
+    let stem = input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    let parent = input_path.parent().unwrap_or(Path::new("."));
+    let base_names = companion_mkv_base_candidates(stem);
+    let mut mkv_candidates: Vec<PathBuf> = Vec::new();
+    for base in &base_names {
+        mkv_candidates.push(parent.join(format!("{}.mkv", base)));
+        if let Some(gp) = parent.parent() {
+            mkv_candidates.push(gp.join(format!("{}.mkv", base)));
+        }
+    }
+    for path in &mkv_candidates {
+        if path.exists() {
+            if let Ok((w, h)) = probe_video_resolution(path.to_str().unwrap_or("")) {
+                if (w, h) == (1440, 1080) || (w, h) == (1280, 720) || (w, h) == (720, 480) {
+                    if debug {
+                        eprintln!("Companion .mkv resolution: {}x{} ({})", w, h, path.display());
+                    }
+                    return (w, h);
+                }
+            }
+        }
+    }
+    (0, 0)
+}
+
+/// Map canvas_size string to BDN video_format.
+fn video_format_from_canvas(canvas_size: &str) -> String {
+    match canvas_size {
+        "720x480" => "ntsc".to_string(),
+        "1280x720" => "720p".to_string(),
+        "1440x1080" => "1440x1080".to_string(),
+        _ => "1080p".to_string(),
+    }
 }
 
 #[derive(Parser)]
@@ -136,43 +189,13 @@ fn run() -> anyhow::Result<()> {
     ffmpeg.open_file(&input_file)?;
 
     let video_info = ffmpeg.get_video_info();
-    let (effective_width, effective_height) = if video_info.width != 0 || video_info.height != 0 {
-        (video_info.width, video_info.height)
-    } else if cli.anamorphic {
-        // .mks or no video: look for companion .mkv (same or parent dir) by trying base names
-        // derived from stem (e.g. MOVIE.01.jpn.forced -> MOVIE, MOVIE.01, ...) to match MOVIE.mkv
-        let input_path = Path::new(&input_file);
-        let stem = input_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("");
-        let parent = input_path.parent().unwrap_or(Path::new("."));
-        let base_names = companion_mkv_base_candidates(stem);
-        let mut mkv_candidates: Vec<PathBuf> = Vec::new();
-        for base in &base_names {
-            mkv_candidates.push(parent.join(format!("{}.mkv", base)));
-            if let Some(gp) = parent.parent() {
-                mkv_candidates.push(gp.join(format!("{}.mkv", base)));
-            }
-        }
-        let mut resolved = (0, 0);
-        for path in &mkv_candidates {
-            if path.exists() {
-                if let Ok((w, h)) = probe_video_resolution(path.to_str().unwrap_or("")) {
-                    if (w, h) == (1440, 1080) || (w, h) == (1280, 720) || (w, h) == (720, 480) {
-                        if cli.debug {
-                            eprintln!("Companion .mkv resolution: {}x{} ({})", w, h, path.display());
-                        }
-                        resolved = (w, h);
-                        break;
-                    }
-                }
-            }
-        }
-        resolved
-    } else {
-        (0, 0)
-    };
+    let (effective_width, effective_height) = resolve_effective_resolution(
+        &input_file,
+        video_info.width,
+        video_info.height,
+        cli.anamorphic,
+        cli.debug,
+    );
     let canvas_size = determine_canvas_size(
         effective_width,
         effective_height,
@@ -187,12 +210,7 @@ fn run() -> anyhow::Result<()> {
     } else {
         29.97
     };
-    let video_format = match canvas_size.as_str() {
-        "720x480" => "ntsc".to_string(),
-        "1280x720" => "720p".to_string(),
-        "1440x1080" => "1440x1080".to_string(),
-        _ => "1080p".to_string(),
-    };
+    let video_format = video_format_from_canvas(&canvas_size);
     let bdn_info = BdnInfo {
         fps,
         video_format,

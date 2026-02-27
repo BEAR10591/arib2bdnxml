@@ -5,6 +5,13 @@ use std::collections::HashMap;
 /// Default output resolution.
 const DEFAULT_CANVAS: &str = "1920x1080";
 
+#[inline]
+fn debug_eprint(debug: bool, msg: &str) {
+    if debug {
+        eprintln!("{}", msg);
+    }
+}
+
 /// Determine canvas_size from video dimensions and anamorphic flag.
 /// 720x480 → 720x480. 1280x720 → 1280x720. 1440x1080 with --anamorphic → 1440x1080. Otherwise 1920x1080.
 pub fn determine_canvas_size(
@@ -17,25 +24,19 @@ pub fn determine_canvas_size(
         (0, 0) => DEFAULT_CANVAS,
         (1920, 1080) => DEFAULT_CANVAS,
         (1280, 720) => {
-            if debug {
-                eprintln!("canvas_size: 1280x720");
-            }
+            debug_eprint(debug, "canvas_size: 1280x720");
             "1280x720"
-        },
+        }
         (1440, 1080) => {
             if anamorphic {
-                if debug {
-                    eprintln!("canvas_size: 1440x1080 (anamorphic, source 1440x1080)");
-                }
+                debug_eprint(debug, "canvas_size: 1440x1080 (anamorphic, source 1440x1080)");
                 "1440x1080"
             } else {
                 DEFAULT_CANVAS
             }
         }
         (720, 480) => {
-            if debug {
-                eprintln!("canvas_size: 720x480");
-            }
+            debug_eprint(debug, "canvas_size: 720x480");
             "720x480"
         }
         _ => anyhow::bail!(
