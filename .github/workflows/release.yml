@@ -154,7 +154,7 @@ jobs:
 
   release:
     needs: [build-macos, build-windows-x64, build-windows-arm64]
-    if: startsWith(github.ref, 'refs/tags/')  # only create release when triggered by tag push
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -168,10 +168,14 @@ jobs:
       - name: Create Release and upload assets
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && format('manual-{0}', github.run_id) || github.ref_name }}
+          target_commitish: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.ref }}
+          name: ${{ github.event_name == 'workflow_dispatch' && format('Manual build {0}', github.run_id) || github.ref_name }}
+          draft: ${{ github.event_name == 'workflow_dispatch' }}
           files: |
             arib2bdnxml-macos-arm64/*.zip
             arib2bdnxml-windows-x86_64/*.zip
             arib2bdnxml-windows-arm64/*.zip
-          generate_release_notes: true
+          generate_release_notes: ${{ github.event_name != 'workflow_dispatch' }}
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
