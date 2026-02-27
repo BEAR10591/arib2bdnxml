@@ -165,13 +165,24 @@ fn check_ffmpeg_version(ffmpeg_bin: &Path) {
         .arg("-version")
         .output()
         .unwrap_or_else(|e| panic!("Failed to run {}: {}", ffmpeg_bin.display(), e));
-    let line = std::str::from_utf8(&out.stdout)
+    // ffmpeg often prints version to stderr on Windows
+    let line_stdout = std::str::from_utf8(&out.stdout)
         .ok()
         .and_then(|s| s.lines().next())
         .unwrap_or("");
-    // "ffmpeg version 8.0" or "ffmpeg version 8.0.1" or "ffmpeg version 7.4.2"
+    let line_stderr = std::str::from_utf8(&out.stderr)
+        .ok()
+        .and_then(|s| s.lines().next())
+        .unwrap_or("");
+    let line = if !line_stdout.is_empty() {
+        line_stdout
+    } else {
+        line_stderr
+    };
+    // "ffmpeg version 8.0" or "ffmpeg version 8.0.1" or "FFmpeg version ..."
     let version = line
         .strip_prefix("ffmpeg version ")
+        .or_else(|| line.strip_prefix("FFmpeg version "))
         .or_else(|| line.split_whitespace().nth(2))
         .unwrap_or("");
     let mut parts = version.split('.');
@@ -194,8 +205,14 @@ fn check_libaribcaption(ffmpeg_bin: &Path) {
         .args(["-hide_banner", "-decoders"])
         .output()
         .unwrap_or_else(|e| panic!("Failed to run {} -decoders: {}", ffmpeg_bin.display(), e));
-    let stdout = std::str::from_utf8(&out.stdout).unwrap_or("");
-    let has_libaribcaption = stdout
+    // decoder list is often on stderr on Windows
+    let out_str = std::str::from_utf8(&out.stdout).unwrap_or("");
+    let out_str = if out_str.is_empty() {
+        std::str::from_utf8(&out.stderr).unwrap_or("")
+    } else {
+        out_str
+    };
+    let has_libaribcaption = out_str
         .lines()
         .any(|line| line.contains("libaribcaption") && line.contains("arib_caption"));
     if !has_libaribcaption {
