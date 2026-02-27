@@ -47,6 +47,26 @@ fn check_libaribcaption_via_lib(link_search: &Option<PathBuf>, root: &Option<Pat
     const SYMBOL: &str = "ff_libaribcaption_decoder";
     let lib_patterns = lib_patterns_for_os();
     let mut candidates: Vec<PathBuf> = Vec::new();
+    // On Windows with root (e.g. Gyan 7z), prefer bin/avcodec*.dll (e.g. avcodec-62.dll) so we read PE exports; .lib in lib/ is import lib and dumpbin may not list symbols.
+    if env::consts::OS == "windows" {
+        if let Some(r) = root {
+            let bin_dir = r.join("bin");
+            if let Ok(entries) = std::fs::read_dir(&bin_dir) {
+                let mut dlls: Vec<PathBuf> = entries
+                    .filter_map(|e| e.ok())
+                    .map(|e| e.path())
+                    .filter(|p| {
+                        p.extension().map_or(false, |e| e == "dll")
+                            && p.file_stem().map_or(false, |s| {
+                                s.to_str().map_or(false, |n| n.starts_with("avcodec"))
+                            })
+                    })
+                    .collect();
+                dlls.sort();
+                candidates.extend(dlls);
+            }
+        }
+    }
     if let Some(lib_dir) = link_search {
         if lib_dir.exists() {
             for name in lib_patterns {
@@ -54,14 +74,6 @@ fn check_libaribcaption_via_lib(link_search: &Option<PathBuf>, root: &Option<Pat
                 if p.exists() {
                     candidates.push(p);
                 }
-            }
-        }
-    }
-    if env::consts::OS == "windows" {
-        if let Some(r) = root {
-            let dll = r.join("bin").join("avcodec.dll");
-            if dll.exists() {
-                candidates.push(dll);
             }
         }
     }
