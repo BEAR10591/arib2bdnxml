@@ -2,7 +2,7 @@
 name = "arib2bdnxml"
 version = "0.2.0"
 edition = "2021"
-description = "Extract ARIB subtitles from .ts/.m2ts and generate BDN XML + PNG using libaribcaption (via FFmpeg)"
+description = "Extract ARIB subtitles from .ts/.m2ts/.mkv/.mks and generate BDN XML + PNG using libaribcaption (via FFmpeg)"
 license = "MIT"
 readme = "README.md"
 

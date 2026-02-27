@@ -3,12 +3,12 @@
 # required FFmpeg dylibs/DLLs. Run from repo root.
 #
 # Env:
-#   FFMPEG_DIR       - macOS FFmpeg root (include + lib with .dylib). Used for macOS build and dylib copy.
-#   FFMPEG_DIR_WIN   - Windows FFmpeg shared root (include + lib + bin with .dll). Used for Windows build and DLL copy.
+#   FFMPEG_DIR     - macOS FFmpeg root (include + lib). Used for macOS build and dylib copy.
+#   FFMPEG_DIR_WIN - Windows FFmpeg shared root (include + lib + bin). Used for cross Windows build and DLL copy.
 #
 # Example (macOS):
-#   export FFMPEG_DIR="$(brew --prefix ffmpeg-ursus)"   # or your macOS FFmpeg
-#   export FFMPEG_DIR_WIN="/path/to/ffmpeg-8.0.1-full_build-shared"
+#   export FFMPEG_DIR="$(brew --prefix ffmpeg)"   # e.g. bear10591/tap/ffmpeg
+#   export FFMPEG_DIR_WIN="/path/to/ffmpeg-release-full-shared"
 #   ./scripts/package-release.sh
 
 set -e

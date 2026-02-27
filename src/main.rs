@@ -12,7 +12,7 @@ use clap::Parser;
 
 use bdn::{adjust_timestamp, time_to_tc, BdnInfo, BdnXmlGenerator, SubtitleEvent};
 use bitmap::{generate_png_filename, save_bitmap_as_png};
-use config::{determine_canvas_size, setup_libaribcaption_defaults};
+use config::{determine_canvas_size, setup_libaribcaption_defaults, video_format_from_canvas};
 use ffmpeg::{probe_video_resolution, FfmpegWrapper, SubtitleFrame};
 use options::parse_libaribcaption_opts;
 
@@ -97,16 +97,6 @@ fn resolve_effective_resolution(
         }
     }
     (0, 0)
-}
-
-/// Map canvas_size string to BDN video_format.
-fn video_format_from_canvas(canvas_size: &str) -> String {
-    match canvas_size {
-        "720x480" => "ntsc".to_string(),
-        "1280x720" => "720p".to_string(),
-        "1440x1080" => "1440x1080".to_string(),
-        _ => "1080p".to_string(),
-    }
 }
 
 #[derive(Parser)]
@@ -210,10 +200,9 @@ fn run() -> anyhow::Result<()> {
     } else {
         29.97
     };
-    let video_format = video_format_from_canvas(&canvas_size);
     let bdn_info = BdnInfo {
         fps,
-        video_format,
+        video_format: video_format_from_canvas(&canvas_size).to_string(),
     };
 
     ffmpeg.init_decoder(&libaribcaption_opts)?;
@@ -267,31 +256,8 @@ fn run() -> anyhow::Result<()> {
             continue;
         }
 
-        let adjusted_start = if subtitle_frame.start_time > 0.0
-            && subtitle_frame.end_time > subtitle_frame.start_time
-        {
-            adjust_timestamp(subtitle_frame.start_time, video_info.start_time)
-        } else {
-            adjust_timestamp(subtitle_frame.timestamp, video_info.start_time)
-        };
-
-        let adjusted_end = if subtitle_frame.start_time > 0.0
-            && subtitle_frame.end_time > subtitle_frame.start_time
-        {
-            adjust_timestamp(subtitle_frame.end_time, video_info.start_time)
-        } else if let Some(ref next) = next_frame {
-            if next.bitmap.is_some() {
-                if next.start_time > 0.0 && next.end_time > next.start_time {
-                    adjust_timestamp(next.start_time, video_info.start_time)
-                } else {
-                    adjust_timestamp(next.timestamp, video_info.start_time)
-                }
-            } else {
-                adjust_timestamp(next.timestamp, video_info.start_time)
-            }
-        } else {
-            adjusted_start + 1.0
-        };
+        let (adjusted_start, adjusted_end) =
+            subtitle_timing(&subtitle_frame, &next_frame, video_info.start_time);
 
         if adjusted_start >= adjusted_end {
             if !advance_to_next_frame(&mut subtitle_frame, &mut next_frame, &ffmpeg) {
@@ -339,6 +305,35 @@ fn run() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Compute (adjusted_start, adjusted_end) for a subtitle frame using next frame or fallback.
+fn subtitle_timing(
+    frame: &SubtitleFrame,
+    next_frame: &Option<SubtitleFrame>,
+    start_time: f64,
+) -> (f64, f64) {
+    let adjusted_start = if frame.start_time > 0.0 && frame.end_time > frame.start_time {
+        adjust_timestamp(frame.start_time, start_time)
+    } else {
+        adjust_timestamp(frame.timestamp, start_time)
+    };
+    let adjusted_end = if frame.start_time > 0.0 && frame.end_time > frame.start_time {
+        adjust_timestamp(frame.end_time, start_time)
+    } else if let Some(ref next) = next_frame {
+        if next.bitmap.is_some() {
+            if next.start_time > 0.0 && next.end_time > next.start_time {
+                adjust_timestamp(next.start_time, start_time)
+            } else {
+                adjust_timestamp(next.timestamp, start_time)
+            }
+        } else {
+            adjust_timestamp(next.timestamp, start_time)
+        }
+    } else {
+        adjusted_start + 1.0
+    };
+    (adjusted_start, adjusted_end)
 }
 
 /// Advance to the next subtitle frame. Returns true if advanced, false if no more frames.

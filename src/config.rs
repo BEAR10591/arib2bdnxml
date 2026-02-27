@@ -51,6 +51,16 @@ pub fn determine_canvas_size(
     Ok(canvas.to_string())
 }
 
+/// Map canvas_size string to BDN video_format (1080p, 720p, 1440x1080, ntsc).
+pub fn video_format_from_canvas(canvas_size: &str) -> &'static str {
+    match canvas_size {
+        "720x480" => "ntsc",
+        "1280x720" => "720p",
+        "1440x1080" => "1440x1080",
+        _ => "1080p",
+    }
+}
+
 /// Parse a "WxH" string into (width, height).
 pub fn parse_canvas_size(s: &str) -> anyhow::Result<(i32, i32)> {
     let mut it = s.split('x');
