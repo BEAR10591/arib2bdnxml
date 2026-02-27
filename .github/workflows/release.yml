@@ -79,12 +79,21 @@ jobs:
         run: |
           winget install -e --id Gyan.FFmpeg.Shared --accept-package-agreements --accept-source-agreements
           $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-          $ffmpegExe = (Get-Command ffmpeg -ErrorAction SilentlyContinue).Source
-          if (-not $ffmpegExe) { $ffmpegExe = (where.exe ffmpeg 2>$null | Select-Object -First 1) }
-          $binDir = (Get-Item $ffmpegExe).DirectoryName
-          $root = (Get-Item $binDir).Parent.FullName
+          # PATH may list WinGet shim first; pick the root that has include (dev headers)
+          $root = $null
+          foreach ($line in (where.exe ffmpeg 2>$null)) {
+            $line = $line.Trim()
+            if (-not $line) { continue }
+            $binDir = (Get-Item $line -ErrorAction SilentlyContinue).DirectoryName
+            if (-not $binDir) { continue }
+            $candidate = (Get-Item $binDir).Parent.FullName
+            $header = Join-Path $candidate "include\libavcodec\version_major.h"
+            if (Test-Path $header) { $root = $candidate; break }
+          }
+          if (-not $root) { throw "FFmpeg with development headers not found after winget install." }
           echo "FFMPEG_DIR=$root" >> $env:GITHUB_ENV
-          echo "$root\bin" >> $env:GITHUB_PATH
+          $binDir = Join-Path $root "bin"
+          if (Test-Path $binDir) { echo "$binDir" >> $env:GITHUB_PATH }
 
       - name: Build (release)
         run: cargo build --release
