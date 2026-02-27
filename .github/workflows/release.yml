@@ -166,8 +166,4 @@ jobs:
             arib2bdnxml-windows-arm64/*.zip
           generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-</think>
-修正中: macOS の artifact 名を固定し、release ジョブで両アーティファクトをダウンロードしてリリースに添付します。
-<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>
-StrReplace
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
