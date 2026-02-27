@@ -6,6 +6,23 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Decode bytes as UTF-16 LE (Windows console often uses this). Returns None if not valid UTF-16.
+fn decode_utf16_le(buf: &[u8]) -> Option<String> {
+    if buf.len() < 2 {
+        return Some(String::new());
+    }
+    let mut u16s = Vec::with_capacity(buf.len() / 2);
+    let mut i = 0;
+    if buf.len() >= 2 && buf[0] == 0xFF && buf[1] == 0xFE {
+        i = 2; // skip BOM
+    }
+    while i + 1 < buf.len() {
+        u16s.push(u16::from_le_bytes([buf[i], buf[i + 1]]));
+        i += 2;
+    }
+    String::from_utf16(&u16s).ok()
+}
+
 fn main() {
     println!("cargo:rerun-if-env-changed=FFMPEG_DIR");
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
@@ -160,17 +177,7 @@ fn get_ffmpeg_binary(root: &Option<PathBuf>) -> PathBuf {
     PathBuf::from(first_line)
 }
 
-fn check_ffmpeg_version(ffmpeg_bin: &Path) {
-    let out = Command::new(ffmpeg_bin)
-        .arg("-version")
-        .output()
-        .unwrap_or_else(|e| panic!("Failed to run {}: {}", ffmpeg_bin.display(), e));
-    // Use lossy UTF-8; Windows may output in system code page
-    let out_str = String::from_utf8_lossy(&out.stdout);
-    let err_str = String::from_utf8_lossy(&out.stderr);
-    let combined = format!("{}\n{}", out_str, err_str);
-    // "ffmpeg version 8.0" or "FFmpeg version 8.0.1" or "version 8.0"
-    let mut major: u32 = 0;
+fn parse_major_from_combined(combined: &str) -> u32 {
     for line in combined.lines() {
         let line = line.trim();
         if let Some(v) = line
@@ -178,36 +185,84 @@ fn check_ffmpeg_version(ffmpeg_bin: &Path) {
             .or_else(|| line.strip_prefix("FFmpeg version "))
         {
             if let Some(m) = v.split('.').next().and_then(|s| s.parse::<u32>().ok()) {
-                major = m;
-                break;
+                return m;
             }
         }
-        if major == 0 {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 3 && parts[1].eq_ignore_ascii_case("version") {
-                if let Some(m) = parts[2].split('.').next().and_then(|s| s.parse::<u32>().ok()) {
-                    major = m;
-                    break;
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 3 && parts[1].eq_ignore_ascii_case("version") {
+            if let Some(m) = parts[2].split('.').next().and_then(|s| s.parse::<u32>().ok()) {
+                return m;
+            }
+        }
+    }
+    for line in combined.lines() {
+        if let Some(pos) = line.find("8.") {
+            let tail = &line[pos..];
+            if let Some(first) = tail.split(|c: char| !c.is_ascii_digit() && c != '.').next() {
+                if let Some(m) = first.split('.').next().and_then(|s| s.parse::<u32>().ok()) {
+                    if m >= 8 {
+                        return m;
+                    }
                 }
             }
         }
     }
-    // Fallback: look for "8." anywhere in output (e.g. unusual format or encoding on Windows)
-    if major == 0 {
-        for line in combined.lines() {
-            if let Some(pos) = line.find("8.") {
-                let tail = &line[pos..];
-                if let Some(first) = tail.split(|c: char| !c.is_ascii_digit() && c != '.').next() {
-                    if let Some(m) = first.split('.').next().and_then(|s| s.parse::<u32>().ok()) {
-                        if m >= 8 {
-                            major = m;
-                            break;
+    0
+}
+
+fn check_ffmpeg_version(ffmpeg_bin: &Path) {
+    let out = Command::new(ffmpeg_bin)
+        .arg("-version")
+        .output()
+        .unwrap_or_else(|e| panic!("Failed to run {}: {}", ffmpeg_bin.display(), e));
+    // Use lossy UTF-8; Windows may output in system code page or UTF-16 LE
+    let out_str = String::from_utf8_lossy(&out.stdout);
+    let err_str = String::from_utf8_lossy(&out.stderr);
+    let mut combined = format!("{}\n{}", out_str, err_str);
+    if combined.trim().is_empty() || !combined.contains('8') {
+        if let (Some(sout), Some(serr)) =
+            (decode_utf16_le(&out.stdout), decode_utf16_le(&out.stderr))
+        {
+            combined = format!("{}\n{}", sout, serr);
+        }
+    }
+    let mut major = parse_major_from_combined(&combined);
+    // On Windows, FFMPEG_DIR may point to a layout where bin\ffmpeg.exe is a shim with no output; try PATH ffmpeg
+    if major < 8 && env::consts::OS == "windows" {
+        let path_from_where: Option<PathBuf> = Command::new("where")
+            .arg("ffmpeg.exe")
+            .output()
+            .ok()
+            .and_then(|o| {
+                let s = String::from_utf8_lossy(&o.stdout);
+                s.lines()
+                    .next()
+                    .map(str::trim)
+                    .filter(|l| !l.is_empty())
+                    .map(String::from)
+            })
+            .map(PathBuf::from);
+        if let Some(path_from_where) = path_from_where {
+            if path_from_where != ffmpeg_bin {
+                let out2 = Command::new(&path_from_where)
+                    .arg("-version")
+                    .output()
+                    .ok();
+                if let Some(out2) = out2 {
+                    let o2 = String::from_utf8_lossy(&out2.stdout);
+                    let e2 = String::from_utf8_lossy(&out2.stderr);
+                    let combined2 = format!("{}\n{}", o2, e2);
+                    if combined2.trim().is_empty() {
+                        if let (Some(s1), Some(s2)) =
+                            (decode_utf16_le(&out2.stdout), decode_utf16_le(&out2.stderr))
+                        {
+                            let c2 = format!("{}\n{}", s1, s2);
+                            major = parse_major_from_combined(&c2);
                         }
+                    } else {
+                        major = parse_major_from_combined(&combined2);
                     }
                 }
-            }
-            if major >= 8 {
-                break;
             }
         }
     }
@@ -231,13 +286,19 @@ fn check_libaribcaption(ffmpeg_bin: &Path) {
         .args(["-hide_banner", "-decoders"])
         .output()
         .unwrap_or_else(|e| panic!("Failed to run {} -decoders: {}", ffmpeg_bin.display(), e));
-    // decoder list is often on stderr on Windows; use lossy UTF-8 for code page output
-    let out_str = String::from_utf8_lossy(&out.stdout);
-    let err_str = String::from_utf8_lossy(&out.stderr);
-    let out_str = if out_str.trim().is_empty() {
-        err_str.as_ref()
+    // decoder list is often on stderr on Windows; use lossy UTF-8 or UTF-16 LE
+    let out_utf8 = String::from_utf8_lossy(&out.stdout);
+    let err_utf8 = String::from_utf8_lossy(&out.stderr);
+    let out_str = if !out_utf8.trim().is_empty() {
+        out_utf8.to_string()
+    } else if !err_utf8.trim().is_empty() {
+        err_utf8.to_string()
+    } else if let Some(s) = decode_utf16_le(&out.stderr) {
+        s
+    } else if let Some(s) = decode_utf16_le(&out.stdout) {
+        s
     } else {
-        out_str.as_ref()
+        String::new()
     };
     let has_libaribcaption = out_str
         .lines()
