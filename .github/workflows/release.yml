@@ -1,5 +1,5 @@
 # Release: build and attach artifacts on tag v* or workflow_dispatch.
-# FFmpeg: macOS = Homebrew tap; Windows = winget Gyan.FFmpeg.Shared.
+# FFmpeg: macOS = Homebrew tap; Windows = Gyan.dev full-shared 7z (winget package has no dev headers).
 name: Release
 
 on:
@@ -72,25 +72,19 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Install FFmpeg (winget Gyan.FFmpeg.Shared)
+      - name: Install FFmpeg (Gyan.dev full shared 7z)
         shell: pwsh
         run: |
-          winget install -e --id Gyan.FFmpeg.Shared --accept-package-agreements --accept-source-agreements
-          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-          $root = $null
-          foreach ($line in (where.exe ffmpeg 2>$null)) {
-            $line = $line.Trim()
-            if (-not $line) { continue }
-            $binDir = (Get-Item $line -ErrorAction SilentlyContinue).DirectoryName
-            if (-not $binDir) { continue }
-            $candidate = (Get-Item $binDir).Parent.FullName
-            $header = Join-Path $candidate "include\libavcodec\version_major.h"
-            if (Test-Path $header) { $root = $candidate; break }
-          }
-          if (-not $root) { throw "FFmpeg with development headers not found after winget install. Gyan.FFmpeg.Shared may be runtime-only; use a full build with include/ and lib/ (e.g. ffmpeg-release-full-shared.7z) or a self-hosted runner." }
+          $url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z"
+          $dest = "$env:RUNNER_TEMP\ffmpeg.7z"
+          Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
+          $extractTo = "$env:RUNNER_TEMP\ffmpeg_extract"
+          New-Item -ItemType Directory -Force -Path $extractTo | Out-Null
+          & "C:\Program Files\7-Zip\7z.exe" x $dest "-o$extractTo" -y
+          $dirs = Get-ChildItem $extractTo -Directory
+          $root = if ($dirs.Count -eq 1) { $dirs[0].FullName } else { $extractTo }
           echo "FFMPEG_DIR=$root" >> $env:GITHUB_ENV
-          $binDir = Join-Path $root "bin"
-          if (Test-Path $binDir) { echo "$binDir" >> $env:GITHUB_PATH }
+          echo "$root\bin" >> $env:GITHUB_PATH
 
       - name: Build (release)
         run: cargo build --release
