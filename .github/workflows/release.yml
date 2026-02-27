@@ -124,7 +124,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && format('manual-{0}', github.run_id) || github.ref_name }}
-          target_commitish: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.ref_name }}
+          # 既存タグで Release 作成時も API は commit SHA を要求するため、常に github.sha を渡す
+          target_commitish: ${{ github.sha }}
           name: ${{ github.event_name == 'workflow_dispatch' && format('Manual build {0}', github.run_id) || github.ref_name }}
           draft: ${{ github.event_name == 'workflow_dispatch' }}
           files: |
