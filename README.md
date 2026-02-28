@@ -6,6 +6,8 @@ Extracts ARIB subtitles from .ts/.m2ts/.mkv/.mks files, decodes them to bitmap v
 
 **Supported platforms**: macOS / Windows only
 
+On macOS we recommend using Homebrew (`brew install bear10591/tap/arib2bdnxml`). We do not distribute binaries.
+
 ## Features
 
 - Extract ARIB subtitles from .ts/.m2ts/.mkv/.mks files

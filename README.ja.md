@@ -6,6 +6,8 @@
 
 **対応OS**: macOS / Windows のみ
 
+macOS では Homebrew での利用を推奨しています（`brew install bear10591/tap/arib2bdnxml`）。バイナリ配布は行っていません。
+
 ## 機能
 
 - .ts/.m2ts/.mkv/.mks ファイルから ARIB 字幕を抽出
