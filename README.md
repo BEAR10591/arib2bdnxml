@@ -69,6 +69,8 @@ export FFMPEG_DIR_WIN="/path/to/ffmpeg-8.0.1-full_build-shared"   # Windows FFmp
 
 This produces `dist/arib2bdnxml-macos-<arch>/` (executable + `.dylib`) and, on macOS host, `dist/arib2bdnxml-windows-x86_64/` (`.exe` + `.dll`). Zip each folder for distribution. On macOS, if FFmpeg has dependencies outside that lib (e.g. Homebrew), use an FFmpeg build whose libs are self-contained, or the bundle will still load system libs.
 
+**Windows distribution and GPL:** The Windows package that bundles FFmpeg DLLs uses a GPL-licensed FFmpeg build. That combined distribution is under the GPL. The archive includes `NOTICE.txt` with the GPL notice and information on where to obtain the FFmpeg source code (e.g. [FFmpeg](https://ffmpeg.org/), [gyan.dev builds](https://www.gyan.dev/ffmpeg/builds/)).
+
 ## Tests
 
 ```bash

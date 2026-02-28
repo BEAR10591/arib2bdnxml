@@ -69,6 +69,8 @@ export FFMPEG_DIR_WIN="/path/to/ffmpeg-8.0.1-full_build-shared"   # Windows 用 
 
 `dist/arib2bdnxml-macos-<arch>/`（実行ファイル＋`.dylib`）と、macOS 上で実行した場合は `dist/arib2bdnxml-windows-x86_64/`（`.exe`＋`.dll`）ができます。各フォルダを ZIP して配布してください。macOS で FFmpeg が他のライブラリに依存している場合は、lib が一箇所にまとまった FFmpeg を使うか、同梱後もシステムの dylib を参照します。
 
+**Windows 配布と GPL:** FFmpeg の DLL を同梱した Windows 用パッケージは、GPL ライセンスの FFmpeg ビルドを使用しています。その配布物は GPL の条件に従います。ZIP には GPL の表示および FFmpeg のソースコードの入手先（[FFmpeg](https://ffmpeg.org/)、[gyan.dev ビルド](https://www.gyan.dev/ffmpeg/builds/) など）を記載した `NOTICE.txt` を含めています。
+
 ## テスト
 
 ```bash

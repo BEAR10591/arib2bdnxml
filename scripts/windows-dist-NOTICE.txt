@@ -1,0 +1,29 @@
+NOTICE FOR WINDOWS DISTRIBUTION
+===============================
+
+This Windows package (arib2bdnxml.exe and the included DLLs) contains
+FFmpeg libraries that are licensed under the GNU General Public
+License version 3 or later (GPL v3+).
+
+As a combined work, this distribution is distributed under the terms
+of the GPL. You may obtain the full text of the GPL at:
+
+  https://www.gnu.org/licenses/gpl-3.0.html
+
+FFmpeg source code
+------------------
+The source code corresponding to the FFmpeg libraries in this package
+is available from:
+
+  - FFmpeg official: https://ffmpeg.org/
+    Source: https://git.ffmpeg.org/ffmpeg.git
+    Or download a source tarball from https://ffmpeg.org/releases/
+
+  - Build used for packaging (Gyan.dev): https://www.gyan.dev/ffmpeg/builds/
+    The "release full" shared build is typically used; source code
+    for FFmpeg is available from the official FFmpeg project above.
+
+arib2bdnxml itself is licensed under the MIT License when obtained
+separately (e.g. from source). When distributed as this Windows
+package together with GPL-licensed FFmpeg, the package as a whole
+is under the GPL as stated above.

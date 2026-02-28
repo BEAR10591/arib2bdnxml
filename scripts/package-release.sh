@@ -66,6 +66,8 @@ if [ "$(uname -s)" = "Darwin" ]; then
     cp target/x86_64-pc-windows-gnu/release/arib2bdnxml.exe "$WIN_DIR/"
     echo "Copying Windows FFmpeg DLLs from $FFMPEG_DIR_WIN/bin ..."
     cp -n "$FFMPEG_DIR_WIN"/bin/*.dll "$WIN_DIR/" 2>/dev/null || true
+    # GPL notice for distribution that includes FFmpeg
+    cp "$(dirname "$0")/windows-dist-NOTICE.txt" "$WIN_DIR/NOTICE.txt"
   fi
 fi
 
